@@ -50,4 +50,13 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
     an[IllegalArgumentException] should be thrownBy arr.reshape(5, 0, 0)
   }
 
+  it should "correctly print out a 2 by 2 matrix" in {
+    val arr = ArrayNd.fill[Int](2, 2)(0)
+    arr.toString shouldEqual
+      s"""scalarray.ArrayNd(
+         |  [[0, 0],
+         |   [0, 0]]
+         |)""".stripMargin
+  }
+
 }
