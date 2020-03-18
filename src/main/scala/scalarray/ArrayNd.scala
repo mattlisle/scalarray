@@ -91,45 +91,34 @@ class ArrayNd[T: Numeric] private (
     def addElement(idx: Int): Unit = {
       val remainders = intervals.map((idx + 1) % _).zipWithIndex
       stringBuilder ++= elements(idx).toString
-      println(remainders.toList)
 
-      if (remainders.head._1 == 0) {
-        addCloseBracket()
-        close(remainders.tail)
-      } else {
-        stringBuilder ++= ", "
-      }
-
+      /*_*/
       @tailrec
-      def close(lazyList: LazyList[(Int, Int)]): Unit = lazyList match {
+      def addDelimitingChars(lazyList: LazyList[(Int, Int)]): Unit = lazyList match {
         case LazyList() =>
-          addNewline()
-        case LazyList(head, _) if head._1 == 0 =>
+        case (remainder, _) #:: tail if remainder == 0 =>
           addCloseBracket()
-          close(lazyList.tail)
-        case LazyList(head) if head._1 == 0 =>
-          addCloseBracket()
-        case LazyList(head, _) =>
+          addDelimitingChars(tail)
+        case (_, idx) #:: _ =>
           stringBuilder += ','
-          addNewline()
-          Range(0, head._2).foreach(_ => addOpenBracket())
-        case LazyList(head) =>
-          stringBuilder += ','
-          addNewline()
-          Range(0, head._2).foreach(_ => addOpenBracket())
+          if (idx == 0) stringBuilder += ' ' else addNewline()
+          if (idx > 1) addNewline()
+          Range(0, idx).foreach(_ => addOpenBracket())
       }
-
+      /*_*/
+      addDelimitingChars(remainders)
     }
 
-    stringBuilder ++= getClass.getName
-    addOpenParen()
-
-    shape.foreach(_ => addOpenBracket())
-
-    elements.indices.foreach(idx => addElement(idx))
-
-    addCloseParen()
-    stringBuilder.toString
+    if (intervals.contains(0)) {
+      s"${getClass.getName}([], ${shape.toString})"
+    } else {
+      stringBuilder ++= getClass.getName
+      addOpenParen()
+      shape.foreach(_ => addOpenBracket())
+      elements.indices.foreach(idx => addElement(idx))
+      addCloseParen()
+      stringBuilder.toString
+    }
   }
 
 }

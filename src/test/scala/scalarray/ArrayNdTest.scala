@@ -5,6 +5,8 @@ import org.scalatest.matchers.should.Matchers
 
 class ArrayNdTest extends AnyFlatSpec with Matchers {
 
+  behavior of "reshaping an array"
+
   it should "fail to reshape an array with multiple free dimensions" in {
     val arr = ArrayNd.fill[Int](20)(0)
     an[IllegalArgumentException] should be thrownBy arr.reshape(1, -1, -1)
@@ -50,13 +52,39 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
     an[IllegalArgumentException] should be thrownBy arr.reshape(5, 0, 0)
   }
 
+  behavior of "printing an array"
+
   it should "correctly print out a 2 by 2 matrix" in {
     val arr = ArrayNd.fill[Int](2, 2)(0)
     arr.toString shouldEqual
-      s"""scalarray.ArrayNd(
+      s"""${arr.getClass.getName}(
          |  [[0, 0],
          |   [0, 0]]
          |)""".stripMargin
+  }
+
+  it should "correctly print out an array of shape (2,)" in {
+    val arr = ArrayNd.fill[Int](2)(0)
+    val expected = s"""${arr.getClass.getName}(
+                      |  [0, 0]
+                      |)""".stripMargin
+    val actual = arr.toString
+    actual shouldEqual expected
+  }
+
+  it should "correctly print out a 2 by 1 matrix" in {
+    val arr = ArrayNd.fill[Int](2, 1)(0)
+    arr.toString shouldEqual
+      s"""${arr.getClass.getName}(
+         |  [[0],
+         |   [0]]
+         |)""".stripMargin
+  }
+
+  it should "correctly print out a 2 by 2 by 2 tensor" in {
+    val arr = ArrayNd.fill[Int](2, 2, 2)(0)
+    arr.toString.stripMargin shouldEqual
+      s"${arr.getClass.getName}(\n  [[[0, 0],\n    [0, 0]],\n   \n   [[0, 0],\n    [0, 0]]]\n)"
   }
 
 }
