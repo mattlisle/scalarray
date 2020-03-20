@@ -87,4 +87,20 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
       s"${arr.getClass.getName}(\n  [[[0, 0],\n    [0, 0]],\n   \n   [[0, 0],\n    [0, 0]]]\n)"
   }
 
+  behavior of "transposing an array"
+
+  private val transposeArr = ArrayNd.fromArray(Array(1, 2, 3, 4)).reshape(2, 2)
+
+  it should "equal the tranpose of the transpose of itself" in {
+    transposeArr.transpose.transpose shouldEqual transposeArr
+  }
+
+  it should "retain the correct stride after flattening after a transpose" in {
+    transposeArr.transpose.flatten shouldEqual ArrayNd.fromArray(Array(1, 3, 2, 4))
+  }
+
+  it should "always return the same array for the transpose of a 1D array" in {
+    transposeArr.transpose.flatten.transpose shouldEqual ArrayNd.fromArray(Array(1, 3, 2, 4))
+  }
+
 }

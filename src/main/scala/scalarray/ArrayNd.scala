@@ -12,19 +12,39 @@ import scala.reflect.ClassTag
   *
   * @param elements `NdArray` content in raw, 1D form
   * @param shape sequence of dimension sizes, the product of which must equal the number of elements
+  * @param rowMajor if the matrix is row-major (default) or column major (when transposed)
   * @tparam T any numeric type
   */
 class ArrayNd[T: Numeric] private (
-  private val elements: Array[T],
-  val shape: Seq[Int]
+  val elements: Array[T],
+  val shape: Seq[Int],
+  private val stride: Int,
+  private val rowMajor: Boolean
 ) {
 
   private val length: Int = elements.length
 
   require(shape.product == length, s"Invalid shape for $length elements: $shape")
 
+  // TODO make an elements class that extends IndexedSeq
+  /** Iterates over elements in row-major order */
+  protected def elementsIterator: Iterator[T] = new Iterator[T] {
+    private var counter = 0
+    private var idx = 0
+
+    override def hasNext: Boolean = counter < elements.length
+
+    override def next(): T = {
+      if (idx >= elements.length) idx = idx - elements.length + 1
+      val element = elements(idx)
+      counter += 1
+      idx += stride
+      element
+    }
+  }
+
   /** 1D representation of the array */
-  def flatten: ArrayNd[T] = new ArrayNd(elements, Seq(length))
+  def flatten: ArrayNd[T] = new ArrayNd(elements, Seq(length), stride, rowMajor)
 
   /**
     * Takes a view on same underlying data
@@ -46,7 +66,25 @@ class ArrayNd[T: Numeric] private (
       partialShape
     }
 
-    new ArrayNd(elements, newShape)
+    new ArrayNd(elements, newShape, stride, rowMajor)
+  }
+
+  /** Transpose matrix according to same definition as used in numpy */
+  def transpose: ArrayNd[T] = if (shape.length == 1) {
+    this
+  } else {
+    val newShape = shape.reverse
+    val newStride = if (!rowMajor) 1 else newShape.head
+    new ArrayNd(elements, newShape, newStride, !rowMajor)
+  }
+
+  override def equals(that: Any): Boolean = that match {
+    case array: ArrayNd[_] =>
+      this.shape == array.shape &&
+      this.elementsIterator.zip(array.elementsIterator).forall {
+        case (thisElement, thatElement) => thisElement == thatElement
+      }
+    case _ => false
   }
 
   override def toString: String = {
@@ -88,9 +126,9 @@ class ArrayNd[T: Numeric] private (
       nSpaces -= 1
     }
 
-    def addElement(idx: Int): Unit = {
+    def addElement(element: T, idx: Int): Unit = {
       val remainders = intervals.map((idx + 1) % _).zipWithIndex
-      stringBuilder ++= elements(idx).toString
+      stringBuilder ++= element.toString
 
       /*_*/
       @tailrec
@@ -115,7 +153,9 @@ class ArrayNd[T: Numeric] private (
       stringBuilder ++= getClass.getName
       addOpenParen()
       shape.foreach(_ => addOpenBracket())
-      elements.indices.foreach(idx => addElement(idx))
+      elementsIterator.zipWithIndex.foreach {
+        case (element, idx) => addElement(element, idx)
+      }
       addCloseParen()
       stringBuilder.toString
     }
@@ -126,7 +166,7 @@ class ArrayNd[T: Numeric] private (
 object ArrayNd {
 
   /**
-    * Factory for homogeneous `NdArray` of specified shape
+    * Factory for homogeneous `ArrayNd` of specified shape
     *
     * @param shape sequence of dimension sizes, the product of will be the number of elements
     * @param elem value with which to fill the array
@@ -134,7 +174,22 @@ object ArrayNd {
     */
   def fill[T: Numeric: ClassTag](shape: Int*)(elem: => T): ArrayNd[T] = new ArrayNd(
     elements = Array.fill(shape.product)(elem),
-    shape = shape
+    shape = shape,
+    stride = 1,
+    rowMajor = true
+  )
+
+  /**
+    * Factory for `ArrayNd` from an existing array
+    *
+    * @param data from source array
+    * @tparam T any numeric type
+    */
+  def fromArray[T: Numeric](data: Array[T]) = new ArrayNd[T](
+    elements = data,
+    shape = Seq(data.length),
+    stride = 1,
+    rowMajor = true
   )
   
 }
