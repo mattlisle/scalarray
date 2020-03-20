@@ -92,6 +92,13 @@ class ArrayNd[T: Numeric] private (
     val stringBuilder = new StringBuilder
     val intervalBuf = new ArrayBuffer[Int]()
 
+    def getNumDigits(x: T): Int = if (x == 0) {
+      1
+    } else {
+      (math.log10(implicitly[Numeric[T]].toDouble(x)) + 1).floor.toInt.abs
+    }
+    val maxDigits = getNumDigits(elements.max)
+
     @tailrec
     def getIntervals(shapeSlice: Seq[Int]): Seq[Int] = shapeSlice match {
       case Seq(dim) =>
@@ -128,6 +135,7 @@ class ArrayNd[T: Numeric] private (
 
     def addElement(element: T, idx: Int): Unit = {
       val remainders = intervals.map((idx + 1) % _).zipWithIndex
+      Range(getNumDigits(element), maxDigits).foreach(_ => stringBuilder += ' ')
       stringBuilder ++= element.toString
 
       /*_*/
