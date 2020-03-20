@@ -12,14 +12,13 @@ import scala.reflect.ClassTag
   *
   * @param elements `NdArray` content in raw, 1D form
   * @param shape sequence of dimension sizes, the product of which must equal the number of elements
-  * @param rowMajor if the matrix is row-major (default) or column major (when transposed)
+  * @param transposed if the matrix is row-major (default) or column major (when transposed)
   * @tparam T any numeric type
   */
 class ArrayNd[T: Numeric] private (
   val elements: Array[T],
   val shape: Seq[Int],
-  private val stride: Int,
-  private val rowMajor: Boolean
+  private val transposed: Boolean
 ) {
 
   private val length: Int = elements.length
@@ -31,42 +30,84 @@ class ArrayNd[T: Numeric] private (
   protected def elementsIterator: Iterator[T] = new Iterator[T] {
     private var counter = 0
     private var idx = 0
+    private val maxCount = elements.length
+    private val indices = Array.fill[Int](shape.length.max(1))(idx)
 
-    override def hasNext: Boolean = counter < elements.length
+    private val products = {
+      val reverse = shape.reverse
+      (shape.length until 0 by -1).map(n => reverse.drop(n).product)
+    }
+
+    private def updateState(): Unit = {
+      @tailrec
+      def update1dIdx(dim: Int): Unit = if (indices(dim) < shape(dim) - 1) {
+        indices(dim) += 1
+        idx += products.slice(dim, dim + 2).sum
+        if (idx >= elements.length) {
+          idx = idx - elements.length
+        }
+      } else {
+        indices(dim) = 0
+        update1dIdx(dim - 1)
+      }
+
+      counter += 1
+      if (transposed && hasNext) {
+        update1dIdx(indices.length - 1)
+      } else {
+        idx += 1
+      }
+    }
+
+    override def hasNext: Boolean = counter < maxCount
 
     override def next(): T = {
-      if (idx >= elements.length) idx = idx - elements.length + 1
       val element = elements(idx)
-      counter += 1
-      idx += stride
+      updateState()
       element
     }
   }
 
+  /**
+    * Returns a new array with the elements copied
+    *
+    * @param newShape for the new array
+    */
+  protected def withNewShape(newShape: Seq[Int])(implicit classTag: ClassTag[T]): ArrayNd[T] = if (!transposed) {
+    new ArrayNd(elements, newShape, transposed)
+  } else {
+    val copiedElements = {
+      val buf = new ArrayBuffer[T]()
+      elementsIterator.foreach(elem => buf += elem)
+      buf.toArray
+    }
+    new ArrayNd(copiedElements, newShape, transposed = false)
+  }
+
   /** 1D representation of the array */
-  def flatten: ArrayNd[T] = new ArrayNd(elements, Seq(length), stride, rowMajor)
+  def flatten(implicit classTag: ClassTag[T]): ArrayNd[T] = this.withNewShape(Seq(length))
 
   /**
     * Takes a view on same underlying data
     *
-    * @param partialShape new shape of array which may include up to 1 free dimension
+    * @param dimensions new shape of array which may include up to 1 free dimension
     */
-  def reshape(partialShape: Int*): ArrayNd[T] = {
-    require(partialShape.count(size => size == -1 || size == 0) <= 1, s"Only one free dimension allowed")
+  def reshape(dimensions: Int*)(implicit classTag: ClassTag[T]): ArrayNd[T] = {
+    require(dimensions.count(size => size == -1 || size == 0) <= 1, s"Only one free dimension allowed")
 
-    val freeIndex = partialShape.indexOf(-1)
-    val partialLength = partialShape.filterNot(_ == -1).product
-    val errorMessage = s"Cannot fit $length elements into shape $partialShape"
+    val freeIndex = dimensions.indexOf(-1)
+    val partialLength = dimensions.filterNot(_ == -1).product
+    val errorMessage = s"Cannot fit $length elements into shape $dimensions"
 
     val newShape = if (freeIndex >= 0) {
       require(partialLength <= length && length % partialLength == 0 || length == 0, errorMessage)
-      partialShape.updated(freeIndex, length / partialLength)
+      dimensions.updated(freeIndex, length / partialLength)
     } else {
       require(partialLength == length, errorMessage)
-      partialShape
+      dimensions
     }
 
-    new ArrayNd(elements, newShape, stride, rowMajor)
+    this.withNewShape(newShape)
   }
 
   /** Transpose matrix according to same definition as used in numpy */
@@ -74,8 +115,7 @@ class ArrayNd[T: Numeric] private (
     this
   } else {
     val newShape = shape.reverse
-    val newStride = if (!rowMajor) 1 else newShape.head
-    new ArrayNd(elements, newShape, newStride, !rowMajor)
+    new ArrayNd(elements, newShape, !transposed)
   }
 
   override def equals(that: Any): Boolean = that match {
@@ -183,8 +223,7 @@ object ArrayNd {
   def fill[T: Numeric: ClassTag](shape: Int*)(elem: => T): ArrayNd[T] = new ArrayNd(
     elements = Array.fill(shape.product)(elem),
     shape = shape,
-    stride = 1,
-    rowMajor = true
+    transposed = false
   )
 
   /**
@@ -196,8 +235,7 @@ object ArrayNd {
   def fromArray[T: Numeric](data: Array[T]) = new ArrayNd[T](
     elements = data,
     shape = Seq(data.length),
-    stride = 1,
-    rowMajor = true
+    transposed = false
   )
   
 }

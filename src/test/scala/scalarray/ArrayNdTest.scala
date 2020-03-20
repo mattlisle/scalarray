@@ -89,18 +89,26 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
 
   behavior of "transposing an array"
 
-  private val transposeArr = ArrayNd.fromArray(Array(1, 2, 3, 4)).reshape(2, 2)
+  private val transposeArr2d = ArrayNd.fromArray(Array(1, 2, 3, 4)).reshape(2, 2)
+  private val transposeArr3d = ArrayNd.fromArray((0 until 24).toArray).reshape(3, 2, 4)
 
   it should "equal the tranpose of the transpose of itself" in {
-    transposeArr.transpose.transpose shouldEqual transposeArr
+    transposeArr2d.transpose.transpose shouldEqual transposeArr2d
   }
 
-  it should "retain the correct stride after flattening after a transpose" in {
-    transposeArr.transpose.flatten shouldEqual ArrayNd.fromArray(Array(1, 3, 2, 4))
+  it should "retain the correct order after flattening after a transpose" in {
+    transposeArr2d.transpose.flatten shouldEqual ArrayNd.fromArray(Array(1, 3, 2, 4))
   }
 
   it should "always return the same array for the transpose of a 1D array" in {
-    transposeArr.transpose.flatten.transpose shouldEqual ArrayNd.fromArray(Array(1, 3, 2, 4))
+    transposeArr2d.transpose.flatten.transpose shouldEqual ArrayNd.fromArray(Array(1, 3, 2, 4))
+  }
+
+  it should "transpose a 3D array correctly" in {
+    val flattened = ArrayNd.fromArray(
+      Array(0, 8, 16, 4, 12, 20, 1, 9, 17, 5, 13, 21, 2, 10, 18, 6, 14, 22, 3, 11, 19, 7, 15, 23)
+    )
+    transposeArr3d.transpose.flatten shouldEqual flattened
   }
 
 }
