@@ -5,6 +5,29 @@ import org.scalatest.matchers.should.Matchers
 
 class ArrayNdTest extends AnyFlatSpec with Matchers {
 
+  behavior of "indexing an array"
+
+  it should "throw an exception if not enough indices are supplied" in {
+    val arr = ArrayNd.fill[Int](4, 4)(0)
+    an[IllegalArgumentException] should be thrownBy arr(0)
+  }
+
+  it should "index a negative dimension correctly" in {
+    val arr = ArrayNd.fromArray((0 until 5).toArray)
+    arr(-2) shouldEqual 3
+  }
+
+  it should "index a multidimensional array correctly" in {
+    val arr = ArrayNd.fromArray((0 until 24).toArray).reshape(3, 2, 4)
+    arr(1, 0, 2) shouldEqual 10
+  }
+
+  it should "index a multidimensional array transpose correctly" in {
+    val arr = ArrayNd.fromArray((0 until 24).toArray).reshape(3, 2, 4).transpose
+    arr(1, 0, 2) shouldEqual 17
+  }
+
+
   behavior of "reshaping an array"
 
   it should "fail to reshape an array with multiple free dimensions" in {

@@ -25,6 +25,30 @@ class ArrayNd[T: Numeric] private (
 
   require(shape.product == length, s"Invalid shape for $length elements: $shape")
 
+  /**
+    * Finds an element at the specified indices
+    * The indices are applied in the same order as the dimensions listed in `shape`, e.g.
+    * - If the array is 2-dimensional, this function would be called as array(row, col)
+    * - If the array is 3-dimensional, as in an array of 2D matrices, it would be array(matrix, row, col)
+    *
+    * @param indices of the desired element in the array
+    * @return the element at the specified location
+    */
+  def apply(indices: Int*): T = {
+    require(indices.length == shape.length, s"All dimensions must be specified but was given: $indices")
+
+    @tailrec
+    def get1dIndex(idxSlice: Seq[Int], shapeSlice: Seq[Int], prev: Int = 0): Int = (idxSlice, shapeSlice) match {
+      case (Seq(), Seq())   => prev
+      case (Seq(idx, idxs @ _*), Seq(dim, dims @ _*)) =>
+        val positiveIdx = if (idx >= 0) idx else idx + dim
+        get1dIndex(idxs, dims, prev + positiveIdx * dims.product)
+    }
+
+    val idx1d = if (transposed) get1dIndex(indices.reverse, shape.reverse) else get1dIndex(indices, shape)
+    elements(idx1d)
+  }
+
   // TODO make an elements class that extends IndexedSeq
   /** Iterates over elements in row-major order */
   protected def elementsIterator: Iterator[T] = new Iterator[T] {
