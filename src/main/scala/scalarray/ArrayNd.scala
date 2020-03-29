@@ -13,13 +13,13 @@ import scala.reflect.ClassTag
   * @param elements `NdArray` content in raw, 1D form
   * @param shape sequence of dimension sizes, the product of which must equal the number of elements
   * @param transposed if the matrix is row-major (default) or column major (when transposed)
-  * @tparam T any numeric type
+  * @tparam A any numeric type
   */
-class ArrayNd[T: Numeric] private (
-  val elements: Array[T],
+class ArrayNd[A: Numeric] private (
+  val elements: Array[A],
   val shape: Seq[Int],
-  private val transposed: Boolean
-) {
+  override protected val transposed: Boolean
+) extends ArrayNdOps[A] {
 
   private val length: Int = elements.length
 
@@ -34,7 +34,7 @@ class ArrayNd[T: Numeric] private (
     * @param indices of the desired element in the array
     * @return the element at the specified location
     */
-  def apply(indices: Int*): T = {
+  def apply(indices: Int*): A = {
     require(indices.length == shape.length, s"All dimensions must be specified but was given: $indices")
 
     @tailrec
@@ -49,74 +49,31 @@ class ArrayNd[T: Numeric] private (
     elements(idx1d)
   }
 
-  // TODO make an elements class that extends IndexedSeq
-  /** Iterates over elements in row-major order */
-  protected def elementsIterator: Iterator[T] = new Iterator[T] {
-    private var counter = 0
-    private var idx = 0
-    private val maxCount = elements.length
-    private val indices = Array.fill[Int](shape.length.max(1))(idx)
-
-    private val products = {
-      val reverse = shape.reverse
-      (shape.length until 0 by -1).map(n => reverse.drop(n).product)
-    }
-
-    private def updateState(): Unit = {
-      @tailrec
-      def update1dIdx(dim: Int): Unit = if (indices(dim) < shape(dim) - 1) {
-        indices(dim) += 1
-        idx += products.slice(dim, dim + 2).sum
-        if (idx >= elements.length) {
-          idx = idx - elements.length
-        }
-      } else {
-        indices(dim) = 0
-        update1dIdx(dim - 1)
-      }
-
-      counter += 1
-      if (transposed && hasNext) {
-        update1dIdx(indices.length - 1)
-      } else {
-        idx += 1
-      }
-    }
-
-    override def hasNext: Boolean = counter < maxCount
-
-    override def next(): T = {
-      val element = elements(idx)
-      updateState()
-      element
-    }
-  }
-
   /**
     * Returns a new array with the elements copied
     *
     * @param newShape for the new array
     */
-  protected def withNewShape(newShape: Seq[Int])(implicit classTag: ClassTag[T]): ArrayNd[T] = if (!transposed) {
+  protected def withNewShape(newShape: Seq[Int])(implicit classTag: ClassTag[A]): ArrayNd[A] = if (!transposed) {
     new ArrayNd(elements, newShape, transposed)
   } else {
     val copiedElements = {
-      val buf = new ArrayBuffer[T]()
-      elementsIterator.foreach(elem => buf += elem)
+      val buf = new ArrayBuffer[A]()
+      iterator.foreach(elem => buf += elem)
       buf.toArray
     }
     new ArrayNd(copiedElements, newShape, transposed = false)
   }
 
   /** 1D representation of the array */
-  def flatten(implicit classTag: ClassTag[T]): ArrayNd[T] = this.withNewShape(Seq(length))
+  def flatten(implicit classTag: ClassTag[A]): ArrayNd[A] = this.withNewShape(Seq(length))
 
   /**
     * Takes a view on same underlying data
     *
     * @param dimensions new shape of array which may include up to 1 free dimension
     */
-  def reshape(dimensions: Int*)(implicit classTag: ClassTag[T]): ArrayNd[T] = {
+  def reshape(dimensions: Int*)(implicit classTag: ClassTag[A]): ArrayNd[A] = {
     require(dimensions.count(size => size == -1 || size == 0) <= 1, s"Only one free dimension allowed")
 
     val freeIndex = dimensions.indexOf(-1)
@@ -135,7 +92,7 @@ class ArrayNd[T: Numeric] private (
   }
 
   /** Transpose matrix according to same definition as used in numpy */
-  def transpose: ArrayNd[T] = if (shape.length == 1) {
+  def transpose: ArrayNd[A] = if (shape.length == 1) {
     this
   } else {
     val newShape = shape.reverse
@@ -145,7 +102,7 @@ class ArrayNd[T: Numeric] private (
   override def equals(that: Any): Boolean = that match {
     case array: ArrayNd[_] =>
       this.shape == array.shape &&
-      this.elementsIterator.zip(array.elementsIterator).forall {
+      this.iterator.zip(array.iterator).forall {
         case (thisElement, thatElement) => thisElement == thatElement
       }
     case _ => false
@@ -156,10 +113,10 @@ class ArrayNd[T: Numeric] private (
     val stringBuilder = new StringBuilder
     val intervalBuf = new ArrayBuffer[Int]()
 
-    def getNumDigits(x: T): Int = if (x == 0) {
+    def getNumDigits(x: A): Int = if (x == 0) {
       1
     } else {
-      (math.log10(implicitly[Numeric[T]].toDouble(x)) + 1).floor.toInt.abs
+      (math.log10(implicitly[Numeric[A]].toDouble(x)) + 1).floor.toInt.abs
     }
     val maxDigits = getNumDigits(elements.max)
 
@@ -197,7 +154,7 @@ class ArrayNd[T: Numeric] private (
       nSpaces -= 1
     }
 
-    def addElement(element: T, idx: Int): Unit = {
+    def addElement(element: A, idx: Int): Unit = {
       val remainders = intervals.map((idx + 1) % _).zipWithIndex
       Range(getNumDigits(element), maxDigits).foreach(_ => stringBuilder += ' ')
       stringBuilder ++= element.toString
@@ -225,7 +182,7 @@ class ArrayNd[T: Numeric] private (
       stringBuilder ++= getClass.getName
       addOpenParen()
       shape.foreach(_ => addOpenBracket())
-      elementsIterator.zipWithIndex.foreach {
+      iterator.zipWithIndex.foreach {
         case (element, idx) => addElement(element, idx)
       }
       addCloseParen()
