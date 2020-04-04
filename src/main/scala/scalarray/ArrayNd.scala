@@ -1,6 +1,7 @@
 package scalarray
 
 import scala.annotation.tailrec
+import scala.collection.ArrayOps
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
 
@@ -15,7 +16,7 @@ import scala.reflect.ClassTag
   * @param transposed if the matrix is row-major (default) or column major (when transposed)
   * @tparam A any numeric type
   */
-class ArrayNd[A: Numeric] private (
+class ArrayNd[A: Numeric] (
   val elements: Array[A],
   val shape: Seq[Int],
   override protected val transposed: Boolean
@@ -189,19 +190,18 @@ class ArrayNd[A: Numeric] private (
       stringBuilder.toString
     }
   }
-
 }
 
-object ArrayNd {
+object ArrayNd extends ArrayNdFactory {
 
   /**
     * Factory for homogeneous `ArrayNd` of specified shape
     *
     * @param shape sequence of dimension sizes, the product of will be the number of elements
     * @param elem value with which to fill the array
-    * @tparam T any numeric type
+    * @tparam A any numeric type
     */
-  def fill[T: Numeric: ClassTag](shape: Int*)(elem: => T): ArrayNd[T] = new ArrayNd(
+  override def fill[A: Numeric: ClassTag](shape: Int*)(elem: => A): ArrayNd[A] = new ArrayNd(
     elements = Array.fill(shape.product)(elem),
     shape = shape,
     transposed = false
@@ -211,11 +211,17 @@ object ArrayNd {
     * Factory for `ArrayNd` from an existing array
     *
     * @param data from source array
-    * @tparam T any numeric type
+    * @tparam A any numeric type
     */
-  def fromArray[T: Numeric](data: Array[T]) = new ArrayNd[T](
+  override def fromArray[A: Numeric](data: Array[A]): ArrayNd[A] = new ArrayNd[A](
     elements = data,
     shape = Seq(data.length),
+    transposed = false
+  )
+
+  implicit def fromPrimitive[A: Numeric: ClassTag](element: A): ArrayNd[A] = new ArrayNd[A](
+    elements = Array(element),
+    shape = Seq(1),
     transposed = false
   )
   

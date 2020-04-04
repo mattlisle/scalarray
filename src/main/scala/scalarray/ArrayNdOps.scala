@@ -12,11 +12,14 @@ import scala.reflect.ClassTag
   * @tparam A numeric type of element
   */
 // TODO should follow signature of other Ops classes when subclasses of ArrayNd are created
-trait ArrayNdOps[A] {
+trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
 
   val elements: Array[A]
   val shape: Seq[Int]
   protected val transposed: Boolean
+
+  /** The size of this array */
+  @`inline` def size: Int = elements.length
 
   /** Returns if the array is empty */
   @`inline` def isEmpty: Boolean = elements.isEmpty
@@ -109,5 +112,12 @@ trait ArrayNdOps[A] {
     val newShape = if (transposed) shape.reverse else shape
     ArrayNd.fromArray[B](dest).reshape(newShape: _*)
   }
+
+  /**
+    * Foreach on an `ArrayNd` iterates over the iterator
+    *
+    * @param f function to apply to each element
+    */
+  def foreach(f: A => Unit): Unit = iterator.foreach(f)
 
 }
