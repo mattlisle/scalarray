@@ -178,17 +178,51 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
     }
 
     private val broadcastShape = getBroadcastShape
-    private val thisIterator = iterator
-    private val thatIterator = that.iterator
+
+    private val thisIntervals = getDimIntervals(shape)
+    private val thatIntervals = getDimIntervals(that.shape)
+
+    private var thisIdx = 0
+    private var thatIdx = 0
+    private var broadcastIdx = 0
 
     private var counter = 0
-    private var idx = 0
     private val maxCount = broadcastShape.product
-    private val indices = Array.fill[Int](broadcastShape.length)(idx)
+    private val indices = Array.fill[Int](broadcastShape.length)(broadcastIdx)
 
     override def hasNext: Boolean = ???
 
     override def next(): A = ???
+  }
+
+  protected def getDimIntervals(someShape: Seq[Int]): Seq[Int] = {
+    val intervalBuf = new ListBuffer[Int]
+    @tailrec
+    def getIntervals(shapeSlice: Seq[Int]): Seq[Int] = shapeSlice match {
+      case Seq(dim)        =>
+        intervalBuf += dim
+        intervalBuf.toSeq
+      case Seq(_, dims@_*) =>
+        intervalBuf += shapeSlice.product
+        getIntervals(dims)
+    }
+    getIntervals(someShape)
+    intervalBuf.toSeq
+  }
+
+  protected def getCopyIfTransposed(
+    implicit
+    numeric: Numeric[A],
+    classTag: ClassTag[A]
+  ): ArrayNd[A] = if (!transposed) {
+    new ArrayNd(elements, shape, transposed)
+  } else {
+    val copiedElements = {
+      val buf = new ArrayBuffer[A]()
+      iterator.foreach(elem => buf += elem)
+      buf.toArray
+    }
+    new ArrayNd(copiedElements, shape, transposed = false)
   }
 
 }
