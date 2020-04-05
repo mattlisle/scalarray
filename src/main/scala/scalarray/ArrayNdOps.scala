@@ -57,6 +57,13 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
   /** Iterator that returns elements in row-major order regardless of whether the array is transposed */
   def iterator: Iterator[A] = if (transposed) new TransposedIterator else new StandardIterator
 
+  /** Iterator returning pairs of elements from this array broadcast onto another */
+  def broadcast(that: ArrayNd[A]): Iterator[(A, A)] = if (shape == that.shape) {
+    iterator.zip(that.iterator)
+  } else {
+    new StandardBroadcastIterator(that)
+  }
+
   /**
     * Map operation for n-dimensional arrays, which must return another n-dimensional array of the same shape
     * Note that if the array was transposed, the transposed flag will be reset
@@ -106,6 +113,7 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
     private var idx = 0
     private val maxCount = elements.length
     private val indices = Array.fill[Int](shape.length.max(1))(idx)
+    private val shapeArray = shape.toArray
 
     private val products: Array[Int] = {
       val reverse = shape.reverse
@@ -115,9 +123,9 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
 
     private def updateState(): Unit = {
       @tailrec
-      def update1dIdx(dim: Int): Unit = if (indices(dim) < shape(dim) - 1) {
+      def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
         indices(dim) += 1
-        idx += products(dim) + products(dim + 1)
+        idx += products(dim) + products.lift(dim + 1).getOrElse(0)
         if (idx >= elements.length) {
           idx = idx - elements.length
         }
@@ -140,9 +148,22 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
   }
 
   /** Iterator for non-transposed `ArrayNd` that's broadcast from `oldShape` to `newShape` */
-  private class StandardBroadcastIterator(val that: ArrayNd[A]) extends AbstractIterator[A] {
+  class StandardBroadcastIterator(val that: ArrayNd[A]) extends AbstractIterator[(A, A)] {
 
-    def getBroadcastShape: Seq[Int] = {
+    private val (broadcastShape, thisShape, thatShape, thisIntervals, thatIntervals) = getShapes
+
+    private var broadcast1dIdx = 0
+    private var this1dIdx = 0
+    private var that1dIdx = 0
+
+    private val thisIndices = Array.fill[Int](broadcastShape.length)(0)
+    private val thatIndices = Array.fill[Int](broadcastShape.length)(0)
+
+    private val maxCount = broadcastShape.product
+
+    Seq(broadcast1dIdx, this1dIdx, that1dIdx, thisIndices.toSeq, thatIndices.toSeq).foreach(println)
+
+    def getShapes: (Seq[Int], Array[Int], Array[Int], Array[Int], Array[Int]) = {
       val thisLength = shape.length
       val thatLength = that.shape.length
 
@@ -152,51 +173,74 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
         (shape.padTo(thatLength, 1), that.shape)
       }
 
-      val broadcastShape = new ListBuffer[Int]
+      val broadcastShapeBuf = new ListBuffer[Int]()
 
       @tailrec
       def compareDims(x: Seq[Int], y: Seq[Int]): Unit = (x, y) match {
-        case (x :: xs, y :: ys) =>
-          if (x != y && (x != 1 || y != 1)) {
-            throw new BroadcastException(shape, that.shape)
-          } else {
-            broadcastShape += x.max(y)
+        case (Seq(x, xs @ _*), Seq(y, ys @ _*)) =>
+          if (x == y || x == 1 || y == 1) {
+            broadcastShapeBuf += x.max(y)
             compareDims(xs, ys)
+          } else {
+            throw new Exception // BroadcastException(shape, that.shape)
           }
-        case _ =>
+        case (Seq(), Seq()) =>
       }
 
       compareDims(thisPadded, thatPadded)
-      broadcastShape.toSeq
+      val (thisIntervals, thatIntervals) = (getDimIntervals(thisPadded), getDimIntervals(thatPadded))
+      (broadcastShapeBuf.toSeq, thisPadded.toArray, thatPadded.toArray, thisIntervals, thatIntervals)
     }
 
-    def getBounds(shp: Seq[Int]): Array[Int] = {
-      val buf = new ArrayBuffer[Int]
-      buf += 0
+    def updateState(): Unit = {
 
-      buf.toArray
+      @tailrec
+      def updateThis(dim: Int, thisDim: Int, thatDim: Int): Unit = {
+        if (thisDim == 1 && thatDim > 1 && thatIndices(dim) < thatDim - 1) {
+          this1dIdx -= thisIntervals(dim) - 1
+        } else if (thisIndices(dim) < thisDim - 1) {
+          thisIndices(dim) += 1
+          this1dIdx += 1
+        } else {
+          thisIndices(dim) = 0
+          val nextDim = dim - 1
+          updateThis(nextDim, thisShape(nextDim), thatShape(nextDim))
+        }
+      }
+
+      @tailrec
+      def updateThat(dim: Int, thisDim: Int, thatDim: Int): Unit = {
+        if (thatDim == 1 && thisDim > 1 && thisIndices(dim) > 0) {
+          that1dIdx -= thatIntervals(dim) - 1
+        } else if (thatIndices(dim) < thatDim - 1) {
+          thatIndices(dim) += 1
+          that1dIdx += 1
+        } else {
+          thatIndices(dim) = 0
+          val nextDim = dim - 1
+          updateThat(nextDim, thisShape(nextDim), thatShape(nextDim))
+        }
+      }
+
+      broadcast1dIdx += 1
+      if (hasNext) {
+        val start = broadcastShape.length - 1
+        updateThis(start, thisShape(start), thatShape(start))
+        updateThat(start, thisShape(start), thatShape(start))
+      }
     }
 
-    private val broadcastShape = getBroadcastShape
+    override def hasNext: Boolean = broadcast1dIdx < maxCount
 
-    private val thisIntervals = getDimIntervals(shape)
-    private val thatIntervals = getDimIntervals(that.shape)
-
-    private var thisIdx = 0
-    private var thatIdx = 0
-    private var broadcastIdx = 0
-
-    private var counter = 0
-    private val maxCount = broadcastShape.product
-    private val indices = Array.fill[Int](broadcastShape.length)(broadcastIdx)
-
-    override def hasNext: Boolean = ???
-
-    override def next(): A = ???
+    override def next(): (A, A) = {
+      val pair = (elements(this1dIdx), that.elements(that1dIdx))
+      updateState()
+      pair
+    }
   }
 
-  protected def getDimIntervals(someShape: Seq[Int]): Seq[Int] = {
-    val intervalBuf = new ListBuffer[Int]
+  protected def getDimIntervals(someShape: Seq[Int]): Array[Int] = {
+    val intervalBuf = new ArrayBuffer[Int]
     @tailrec
     def getIntervals(shapeSlice: Seq[Int]): Seq[Int] = shapeSlice match {
       case Seq(dim)        =>
@@ -207,7 +251,7 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
         getIntervals(dims)
     }
     getIntervals(someShape)
-    intervalBuf.toSeq
+    intervalBuf.toArray
   }
 
   protected def getCopyIfTransposed(
