@@ -22,7 +22,7 @@ class ArrayNd[A: Numeric] (
   override protected val transposed: Boolean
 ) extends ArrayNdOps[A] {
 
-  private val length: Int = elements.length
+  val length: Int = elements.length
 
   require(shape.product == length, s"Invalid shape for $length elements: $shape")
 

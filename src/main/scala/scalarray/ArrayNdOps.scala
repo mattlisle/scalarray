@@ -58,10 +58,26 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
   def iterator: Iterator[A] = if (transposed) new TransposedIterator else new StandardIterator
 
   /** Iterator returning pairs of elements from this array broadcast onto another */
-  def broadcast(that: ArrayNd[A]): Iterator[(A, A)] = if (shape == that.shape) {
-    iterator.zip(that.iterator)
-  } else {
-    new StandardBroadcastIterator(that)
+  def broadcast(that: ArrayNd[A])(f: (A, A) => A)(implicit numeric: Numeric[A], classTag: ClassTag[A]): ArrayNd[A] = {
+//    val it = that match {
+//      case MatchingBroadcastIterator(_) => new MatchingBroadcastIterator(that)
+//      case StandardBroadcastIterator(_) => new StandardBroadcastIterator(that)
+//      case _ => throw new Exception
+//    }
+    var idx = 0
+    val len = size
+    val elems = new Array[A](len)
+    val those = that.elements
+    while (idx < len) {
+      elems(idx) = f(elements(idx), those(idx))
+      idx += 1
+    }
+//    val elems = new Array[A](it.broadcastShape.product)
+//    it.foreach { pair =>
+//      elems(idx) = f(pair._1, pair._2)
+//      idx += 1
+//    }
+    new ArrayNd[A](elems, this.shape, transposed = false)
   }
 
   /**
@@ -147,10 +163,43 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
     }
   }
 
-  /** Iterator for non-transposed `ArrayNd` that's broadcast from `oldShape` to `newShape` */
-  class StandardBroadcastIterator(val that: ArrayNd[A]) extends AbstractIterator[(A, A)] {
+  abstract class BroadcastIterator(val that: ArrayNd[A]) extends AbstractIterator[(A, A)] {
+    val broadcastShape: Seq[Int]
+  }
 
-    private val (broadcastShape, thisShape, thatShape, thisIntervals, thatIntervals) = getShapes
+  sealed trait BroadcastIteratorExtractor {
+    def validateDims(thisShape: Seq[Int], thatShape: Seq[Int]): Boolean
+    def unapply(that: ArrayNd[A]): Option[ArrayNd[A]] =  if (validateDims(shape, that.shape)) {
+      Some(that)
+    } else {
+      None
+    }
+  }
+
+  class MatchingBroadcastIterator(that: ArrayNd[A]) extends BroadcastIterator(that) {
+    require(shape == that.shape)
+    override val broadcastShape: Seq[Int] = shape
+    private var counter = 0
+    private var idx = 0
+    private val maxCount = elements.length
+
+    override def hasNext: Boolean = counter < maxCount
+
+    override def next(): (A, A) = {
+      val element = (elements(idx), that.elements(idx))
+      counter += 1
+      idx += 1
+      element
+    }
+  }
+  case object MatchingBroadcastIterator extends BroadcastIteratorExtractor {
+    override def validateDims(thisShape: Seq[Int], thatShape: Seq[Int]): Boolean = thisShape == thatShape
+  }
+
+  /** Iterator for non-transposed `ArrayNd` that's broadcast from `oldShape` to `newShape` */
+  class StandardBroadcastIterator(that: ArrayNd[A]) extends BroadcastIterator(that) {
+
+    val (broadcastShape, thisShape, thatShape, thisIntervals, thatIntervals) = getShapes
 
     private var broadcast1dIdx = 0
     private var this1dIdx = 0
@@ -160,8 +209,7 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
     private val thatIndices = Array.fill[Int](broadcastShape.length)(0)
 
     private val maxCount = broadcastShape.product
-
-    Seq(broadcast1dIdx, this1dIdx, that1dIdx, thisIndices.toSeq, thatIndices.toSeq).foreach(println)
+    private val maxDim = broadcastShape.length - 1
 
     def getShapes: (Seq[Int], Array[Int], Array[Int], Array[Int], Array[Int]) = {
       val thisLength = shape.length
@@ -224,9 +272,8 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
 
       broadcast1dIdx += 1
       if (hasNext) {
-        val start = broadcastShape.length - 1
-        updateThis(start, thisShape(start), thatShape(start))
-        updateThat(start, thisShape(start), thatShape(start))
+        updateThis(maxDim, thisShape(maxDim), thatShape(maxDim))
+        updateThat(maxDim, thisShape(maxDim), thatShape(maxDim))
       }
     }
 
@@ -236,6 +283,31 @@ trait ArrayNdOps[A] extends ArrayNdGenericOps[A] {
       val pair = (elements(this1dIdx), that.elements(that1dIdx))
       updateState()
       pair
+    }
+  }
+  case object StandardBroadcastIterator extends BroadcastIteratorExtractor {
+    override def validateDims(thisShape: Seq[Int], thatShape: Seq[Int]): Boolean = {
+      val thisLength = thisShape.length
+      val thatLength = thatShape.length
+
+      val (thisPadded, thatPadded) = if (thisLength > thatLength) {
+        (thisShape, thatShape.padTo(thisLength, 1))
+      } else {
+        (shape.padTo(thatLength, 1), thatShape)
+      }
+
+      @tailrec
+      def compareDims(x: Seq[Int], y: Seq[Int]): Boolean = (x, y) match {
+        case (Seq(x, xs @ _*), Seq(y, ys @ _*)) =>
+          if (x == y || x == 1 || y == 1) {
+            compareDims(xs, ys)
+          } else {
+            false
+          }
+        case (Seq(), Seq()) => true
+        case _ => false
+      }
+      compareDims(thisPadded, thatPadded)
     }
   }
 
