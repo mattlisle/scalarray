@@ -103,11 +103,17 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     val len = elements.length
     val dest = new Array[B](len)
 
-    iterator.zipWithIndex.foreach {
-      case (a, idx) => dest(idx) = f(a)
+    var idx = 0
+    iterator.foreach { elem =>
+      dest(idx) = f(elem)
+      idx += 1
     }
-    val newShape = if (transposed) shape.reverse else shape
-    ArrayNd.fromArray[B](dest).reshape(newShape: _*)
+    if (transposed) {
+      val newShape = shape.reverse
+      new ArrayNd (dest, newShape, transposed = false)
+    } else {
+      new ArrayNd (dest, shape, transposed = false)
+    }
   }
 
 }
