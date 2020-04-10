@@ -12,7 +12,7 @@ import scala.reflect.ClassTag
   * @tparam A numeric type of element
   */
 // TODO should follow signature of other Ops classes when subclasses of ArrayNd are created
-trait ArrayNdOps[A] {
+trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
 
   val elements: Array[A]
   val shape: Seq[Int]
@@ -99,7 +99,7 @@ trait ArrayNdOps[A] {
     * @tparam B numeric type of element
     * @return array with elements of type `B`
     */
-  def map[B: Numeric: ClassTag](f: A => B): ArrayNd[B] = {
+  def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B] = {
     val len = elements.length
     val dest = new Array[B](len)
 

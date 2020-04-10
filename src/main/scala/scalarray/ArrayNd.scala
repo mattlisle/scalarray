@@ -15,15 +15,13 @@ import scala.reflect.ClassTag
   * @param transposed if the matrix is row-major (default) or column major (when transposed)
   * @tparam A any numeric type
   */
-class ArrayNd[A: Numeric] private (
+class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
   val elements: Array[A],
   val shape: Seq[Int],
   override protected val transposed: Boolean
 ) extends ArrayNdOps[A] {
 
-  private val length: Int = elements.length
-
-  require(shape.product == length, s"Invalid shape for $length elements: $shape")
+  require(shape.product == elements.length, s"Invalid shape for $elements.length elements: $shape")
 
   /**
     * Finds an element at the specified indices
@@ -36,17 +34,16 @@ class ArrayNd[A: Numeric] private (
     */
   def apply(indices: Int*): A = {
     require(indices.length == shape.length, s"All dimensions must be specified but was given: $indices")
-
-    @tailrec
-    def get1dIndex(idxSlice: Seq[Int], shapeSlice: Seq[Int], prev: Int = 0): Int = (idxSlice, shapeSlice) match {
-      case (Seq(), Seq())   => prev
-      case (Seq(idx, idxs @ _*), Seq(dim, dims @ _*)) =>
-        val positiveIdx = if (idx >= 0) idx else idx + dim
-        get1dIndex(idxs, dims, prev + positiveIdx * dims.product)
-    }
-
     val idx1d = if (transposed) get1dIndex(indices.reverse, shape.reverse) else get1dIndex(indices, shape)
     elements(idx1d)
+  }
+
+  @tailrec
+  private def get1dIndex(idxSlice: Seq[Int], shapeSlice: Seq[Int], prev: Int = 0): Int = (idxSlice, shapeSlice) match {
+    case (Seq(), Seq())   => prev
+    case (Seq(idx, idxs @ _*), Seq(dim, dims @ _*)) =>
+      val positiveIdx = if (idx >= 0) idx else idx + dim
+      get1dIndex(idxs, dims, prev + positiveIdx * dims.product)
   }
 
   /**
@@ -66,7 +63,7 @@ class ArrayNd[A: Numeric] private (
   }
 
   /** 1D representation of the array */
-  def flatten(implicit classTag: ClassTag[A]): ArrayNd[A] = this.withNewShape(Seq(length))
+  def flatten(implicit classTag: ClassTag[A]): ArrayNd[A] = this.withNewShape(Seq(elements.length))
 
   /**
     * Takes a view on same underlying data
@@ -78,13 +75,13 @@ class ArrayNd[A: Numeric] private (
 
     val freeIndex = dimensions.indexOf(-1)
     val partialLength = dimensions.filterNot(_ == -1).product
-    val errorMessage = s"Cannot fit $length elements into shape $dimensions"
+    val errorMessage = s"Cannot fit $elements.length elements into shape $dimensions"
 
     val newShape = if (freeIndex >= 0) {
-      require(partialLength <= length && length % partialLength == 0 || length == 0, errorMessage)
-      dimensions.updated(freeIndex, length / partialLength)
+      require(partialLength <= elements.length && elements.length % partialLength == 0 || elements.length == 0, errorMessage)
+      dimensions.updated(freeIndex, elements.length / partialLength)
     } else {
-      require(partialLength == length, errorMessage)
+      require(partialLength == elements.length, errorMessage)
       dimensions
     }
 
@@ -118,6 +115,7 @@ class ArrayNd[A: Numeric] private (
     } else {
       (math.log10(implicitly[Numeric[A]].toDouble(x)) + 1).floor.toInt.abs
     }
+
     val maxDigits = getNumDigits(elements.max)
 
     @tailrec
@@ -177,7 +175,7 @@ class ArrayNd[A: Numeric] private (
     }
 
     if (intervals.contains(0)) {
-      s"${getClass.getName}([], ${shape.toString})"
+      s"ArrayNd([], ${shape.toString})"
     } else {
       stringBuilder ++= getClass.getName
       addOpenParen()
@@ -199,21 +197,23 @@ object ArrayNd {
     *
     * @param shape sequence of dimension sizes, the product of will be the number of elements
     * @param elem value with which to fill the array
-    * @tparam T any numeric type
+    * @tparam A any numeric type
     */
-  def fill[T: Numeric: ClassTag](shape: Int*)(elem: => T): ArrayNd[T] = new ArrayNd(
-    elements = Array.fill(shape.product)(elem),
-    shape = shape,
-    transposed = false
-  )
+  def fill[@specialized(Char, Int, Long, Float, Double) A: Numeric: ClassTag](shape: Int*)(elem: => A): ArrayNd[A] = {
+    new ArrayNd(
+      elements = Array.fill(shape.product)(elem),
+      shape = shape,
+      transposed = false
+    )
+  }
 
   /**
     * Factory for `ArrayNd` from an existing array
     *
     * @param data from source array
-    * @tparam T any numeric type
+    * @tparam A any numeric type
     */
-  def fromArray[T: Numeric](data: Array[T]) = new ArrayNd[T](
+  def fromArray[@specialized(Char, Int, Long, Float, Double) A: Numeric](data: Array[A]) = new ArrayNd[A](
     elements = data,
     shape = Seq(data.length),
     transposed = false
