@@ -2,6 +2,7 @@ package scalarray
 
 import scala.annotation.tailrec
 import scala.collection.AbstractIterator
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.reflect.ClassTag
 
 /**
@@ -70,7 +71,9 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     * @return iterator with a broadcasted shape
     */
   private[scalarray] def broadcastIterator(thatShape: Seq[Int]): BroadcastIterator = thatShape match {
-    case MatchingBroadcastIterator(_) => new MatchingBroadcastIterator
+    case MatchingBroadcastIterator(_)                                      => new MatchingBroadcastIterator
+    case ContiguousBroadcastIterator(broadcastShape, thisShape, thatShape) =>
+      new ContiguousBroadcastIterator(broadcastShape, thisShape, thatShape)
   }
 
   /**
@@ -90,7 +93,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     * @param f operation to perform on pairs of elements
     * @return new n-dimensional array
     */
-  def broadcast(that: ArrayNd[A])(f: (A, A) => A)(implicit n: Numeric[A], tag: ClassTag[A]): ArrayNd[A] = {
+  def broadcast(that: ArrayNd[A])(f: (A, A) => A)(implicit num: Numeric[A], tag: ClassTag[A]): ArrayNd[A] = {
     val thisIt = broadcastIterator(that.shape)
     val thatIt = that.broadcastIterator(shape)
 
@@ -103,7 +106,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
       newElems(idx) = f(thisIt.next(), thatIt.next())
       idx += 1
     }
-    new ArrayNd(newElems, newShape, transposed = false)
+    new ArrayNd(newElems, newShape, contiguous = true)
   }
 
   /**
@@ -117,7 +120,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     /** The 1-dimensional index, which may or may not match the counter */
     protected var idx: Int = 0
     /** Number of elements in the array */
-    protected val maxCount: Int = elements.length
+    protected lazy val maxCount: Int = elements.length
 
     /** Update all necessary state variables */
     protected def updateState(): Unit
@@ -134,16 +137,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   /** Broadcast iterators indicate the shape of the broadcast array */
   trait BroadcastIterator extends ArrayNdIterator {
     val broadcastShape: Seq[Int]
-  }
-
-  /** Companion objects to broadcast iterators will extend this trait */
-  sealed trait BroadcastIteratorExtractor {
-    def validateDims(thisShape: Seq[Int], thatShape: Seq[Int]): Boolean
-    def unapply(thatShape: Seq[Int]): Option[Seq[Int]] =  if (validateDims(shape, thatShape)) {
-      Some(thatShape)
-    } else {
-      None
-    }
+    override protected lazy val maxCount: Int = broadcastShape.product
   }
 
   /** Iterator for a standard (non-transposed) `ArrayNd` */
@@ -178,12 +172,83 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   }
 
   /** If the shapes match, the iterator functions the same as the standard iterator */
-  private class MatchingBroadcastIterator extends StandardIterator with BroadcastIterator {
+  private class MatchingBroadcastIterator extends ContiguousIterator with BroadcastIterator {
     override val broadcastShape: Seq[Int] = shape
   }
   /** Matching broadcast iterators are valid when the shapes match */
-  case object MatchingBroadcastIterator extends BroadcastIteratorExtractor {
-    override def validateDims(thisShape: Seq[Int], thatShape: Seq[Int]): Boolean = thisShape == thatShape
+  object MatchingBroadcastIterator {
+    def unapply(thatShape: Seq[Int]): Option[Seq[Int]] = if (shape == thatShape) {
+      Some(thatShape)
+    } else {
+      None
+    }
+  }
+
+  /** Iterator for non-transposed `ArrayNd` that's broadcast from `oldShape` to `newShape` */
+  private class ContiguousBroadcastIterator(
+    override val broadcastShape: Seq[Int],
+    val thisShapeArr: Array[Int],
+    val thatShapeArr: Array[Int]
+  ) extends BroadcastIterator {
+
+    private val thisIntervals = new Array[Int](thisShapeArr.length)
+    thisShapeArr.indices.map(n => thisShapeArr.drop(n).product).copyToArray(thisIntervals)
+
+    private val thisIndices = Array.fill[Int](broadcastShape.length)(0)
+    private val thatIndices = Array.fill[Int](broadcastShape.length)(0)
+    private val maxDim = broadcastShape.length - 1
+
+    def updateState(): Unit = {
+      @tailrec
+      def updateThis(dim: Int, thisDim: Int, thatDim: Int): Unit = {
+        if (thisDim == 1 && thatDim > 1 && thatIndices(dim) < thatDim - 1) {
+          idx -= thisIntervals(dim) - 1
+        } else if (thisIndices(dim) < thisDim - 1) {
+          thisIndices(dim) += 1
+          idx += 1
+        } else {
+          thisIndices(dim) = 0
+          val nextDim = dim - 1
+          updateThis(nextDim, thisShapeArr(nextDim), thatShapeArr(nextDim))
+        }
+      }
+      counter += 1
+      if (hasNext) updateThis(maxDim, thisShapeArr(maxDim), thatShapeArr(maxDim))
+    }
+  }
+  object ContiguousBroadcastIterator {
+    def unapply(thatShape: Seq[Int]): Option[(Seq[Int], Array[Int], Array[Int])] = {
+      val thisLength = shape.length
+      val thatLength = thatShape.length
+      val broadcastLength = thisLength.max(thatLength)
+
+      val thisPadded = new Array[Int](broadcastLength)
+      val thatPadded = new Array[Int](broadcastLength)
+
+      @tailrec
+      def fillShapes(x: Seq[Int], y: Seq[Int], idx: Int, result: Seq[Int]): Seq[Int] = (x, y) match {
+        case (Seq(x, xs @ _*), Seq(y, ys @ _*)) =>
+          if (x == y || x == 1 || y == 1) {
+            thisPadded(idx) = x
+            thatPadded(idx) = y
+            fillShapes(xs, ys, idx - 1, x.max(y) +: result)
+          } else {
+            throw new Exception
+          }
+        case (Seq(x, xs @ _*), empty @ Seq()) =>
+          thisPadded(idx) = x
+          thatPadded(idx) = 1
+          fillShapes(xs, empty, idx - 1, x +: result)
+        case (empty @ Seq(), Seq(y, ys @ _*)) =>
+          thisPadded(idx) = 1
+          thatPadded(idx) = y
+          fillShapes(empty, ys, idx - 1, y +: result)
+        case _ => result
+      }
+
+      val broadcastShape = fillShapes(shape.reverse, thatShape.reverse, broadcastLength - 1, Seq[Int]())
+      Some(broadcastShape, thisPadded, thatPadded)
+    }
   }
 
 }

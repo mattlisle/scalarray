@@ -140,10 +140,43 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
         96, 36, 76, 116, 1, 41, 81, 21, 61, 101, 5, 45, 85, 25, 65, 105, 9, 49, 89, 29, 69, 109, 13, 53, 93, 33,
         73, 113, 17, 57, 97, 37, 77, 117, 2, 42, 82, 22, 62, 102, 6, 46, 86, 26, 66, 106, 10, 50, 90, 30, 70, 110,
         14, 54, 94, 34, 74, 114, 18, 58, 98, 38, 78, 118, 3, 43, 83, 23, 63, 103, 7, 47, 87, 27, 67, 107, 11, 51,
-        91, 31, 71, 111, 15, 55, 95, 35, 75, 115,  19, 59, 99, 39, 79, 119
+        91, 31, 71, 111, 15, 55, 95, 35, 75, 115, 19, 59, 99, 39, 79, 119
       )
     )
     ArrayNd.fromArray((0 until 120).toArray).reshape(3, 2, 5, 4).transpose.flatten shouldEqual flattened
+  }
+
+  behavior of "broadcasting"
+
+  it should "broadcast two contiguous matrices together with same dimensionality, same shapes" in {
+    val base = ArrayNd.fill(10)(1)
+    val x = base.reshape(1, 2, 5)
+    val y = base.reshape(1, 2, 5)
+    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(1, 2, 5)(2)
+  }
+
+  it should "broadcast two contiguous matrices together with same dimensionality, different shapes" in {
+    val base = ArrayNd.fill(10)(1)
+    val x = base.reshape(1, 2, 5)
+    val y = base.reshape(5, 2, 1)
+    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(5, 2, 5)(2)
+  }
+
+  it should "broadcast two contiguous matrices together with different dimensionality, different shapes" in {
+    val base = ArrayNd.fill(10)(1)
+    val x = base.reshape(2, 5)
+    val y = base.reshape(5, 2, 1)
+    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(5, 2, 5)(2)
+  }
+
+  it should "broadcast two non-contiguous matrices together with different dimensionality, different shapes" in {
+    val base = ArrayNd.fromArray(Range(0, 6).toArray)
+    val x = base.reshape(3, 2).transpose
+    val y = base.reshape(3, 2, 1)
+    def f(a: Int, b: Int): Int = b
+    x.broadcast(y)(f) shouldEqual ArrayNd.fromArray(
+      Array(0, 2, 4, 2, 4, 6, 2, 4, 6, 4, 6, 8, 4, 6, 8, 6, 8, 10)
+    ).reshape(3, 2, 3)
   }
 
 }

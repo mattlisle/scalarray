@@ -128,7 +128,7 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
       (math.log10(asDouble.abs) + 1).floor.toInt + (if (isNegative) 1 else 0)
     }
 
-    val maxDigits = elements.map(getNumDigits).max
+    val maxDigits = if (elements.nonEmpty) elements.map(getNumDigits).max else 0
 
     @tailrec
     def getIntervals(shapeSlice: Seq[Int]): Seq[Int] = shapeSlice match {
