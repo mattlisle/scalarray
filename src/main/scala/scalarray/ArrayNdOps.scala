@@ -63,6 +63,17 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   def iterator: Iterator[A] = if (contiguous) new ContiguousIterator else new NonContiguousIterator
 
   /**
+    * Returns an iterator such that the shape of this array is broadcast to that of another array
+    * The rules of broadcasting are the same as those in numpy
+    *
+    * @param thatShape shape of the array to broadcast with
+    * @return iterator with a broadcasted shape
+    */
+  private[scalarray] def broadcastIterator(thatShape: Seq[Int]): BroadcastIterator = thatShape match {
+    case MatchingBroadcastIterator(_) => new MatchingBroadcastIterator
+  }
+
+  /**
     * Map operation for n-dimensional arrays, which must return another n-dimensional array of the same shape
     * Note that if the array was transposed, the transposed flag will be reset
     *
@@ -71,6 +82,29 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     * @return array with elements of type `B`
     */
   def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B]
+
+  /**
+    * Operates on broadcasted array with a specified function
+    *
+    * @param that array to broadcast with
+    * @param f operation to perform on pairs of elements
+    * @return new n-dimensional array
+    */
+  def broadcast(that: ArrayNd[A])(f: (A, A) => A)(implicit n: Numeric[A], tag: ClassTag[A]): ArrayNd[A] = {
+    val thisIt = broadcastIterator(that.shape)
+    val thatIt = that.broadcastIterator(shape)
+
+    val newShape = thisIt.broadcastShape
+    val len = newShape.product
+    val newElems: Array[A] = new Array[A](len)
+
+    var idx = 0
+    while (idx < len) {
+      newElems(idx) = f(thisIt.next(), thatIt.next())
+      idx += 1
+    }
+    new ArrayNd(newElems, newShape, transposed = false)
+  }
 
   /**
     * Parent class for iterators for `ArrayNd`s
@@ -94,6 +128,21 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
       val element = elements(idx)
       updateState()
       element
+    }
+  }
+
+  /** Broadcast iterators indicate the shape of the broadcast array */
+  trait BroadcastIterator extends ArrayNdIterator {
+    val broadcastShape: Seq[Int]
+  }
+
+  /** Companion objects to broadcast iterators will extend this trait */
+  sealed trait BroadcastIteratorExtractor {
+    def validateDims(thisShape: Seq[Int], thatShape: Seq[Int]): Boolean
+    def unapply(thatShape: Seq[Int]): Option[Seq[Int]] =  if (validateDims(shape, thatShape)) {
+      Some(thatShape)
+    } else {
+      None
     }
   }
 
@@ -126,6 +175,15 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
       if (hasNext) update1dIdx(indices.length - 1)
     }
 
+  }
+
+  /** If the shapes match, the iterator functions the same as the standard iterator */
+  private class MatchingBroadcastIterator extends StandardIterator with BroadcastIterator {
+    override val broadcastShape: Seq[Int] = shape
+  }
+  /** Matching broadcast iterators are valid when the shapes match */
+  case object MatchingBroadcastIterator extends BroadcastIteratorExtractor {
+    override def validateDims(thisShape: Seq[Int], thatShape: Seq[Int]): Boolean = thisShape == thatShape
   }
 
 }
