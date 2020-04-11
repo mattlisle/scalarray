@@ -50,46 +50,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   def lastOption: Option[A] = if (isEmpty) None else Some(last)
 
   /** Iterator that returns elements in row-major order regardless of whether the array is transposed */
-  def iterator: Iterator[A] =  new AbstractIterator[A] {
-    private var counter = 0
-    private var idx = 0
-    private val maxCount = elements.length
-    private lazy val indices = Array.fill[Int](shape.length.max(1))(idx)
-
-    private lazy val products = {
-      val reverse = shape.reverse
-      (shape.length until 0 by -1).map(n => reverse.drop(n).product)
-    }
-
-    private def updateState(): Unit = {
-      @tailrec
-      def update1dIdx(dim: Int): Unit = if (indices(dim) < shape(dim) - 1) {
-        indices(dim) += 1
-        idx += products.slice(dim, dim + 2).sum
-        if (idx >= elements.length) {
-          idx = idx - elements.length
-        }
-      } else {
-        indices(dim) = 0
-        update1dIdx(dim - 1)
-      }
-
-      counter += 1
-      if (transposed && hasNext) {
-        update1dIdx(indices.length - 1)
-      } else {
-        idx += 1
-      }
-    }
-
-    override def hasNext: Boolean = counter < maxCount
-
-    override def next(): A = {
-      val element = elements(idx)
-      updateState()
-      element
-    }
-  }
+  def iterator: Iterator[A] = if (transposed) new TransposedIterator else new StandardIterator
 
   /**
     * Map operation for n-dimensional arrays, which must return another n-dimensional array of the same shape
@@ -113,6 +74,68 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
       new ArrayNd (dest, newShape, transposed = false)
     } else {
       new ArrayNd (dest, shape, transposed = false)
+    }
+  }
+
+  /**
+    * Parent class for iterators for `ArrayNd`s
+    * All `ArrayNdIterator`s iterate through all elements in their underlying array
+    * However, the iteration doesn't always proceed in the same order
+    */
+  abstract class ArrayNdIterator extends AbstractIterator[A] {
+    /** Tracks how many elements have been iterated over */
+    protected var counter: Int = 0
+    /** The 1-dimensional index, which may or may not match the counter */
+    protected var idx: Int = 0
+    /** Number of elements in the array */
+    protected val maxCount: Int = elements.length
+
+    /** Update all necessary state variables */
+    protected def updateState(): Unit
+
+    override def hasNext: Boolean = counter < maxCount
+
+    override def next(): A = {
+      val element = elements(idx)
+      updateState()
+      element
+    }
+  }
+
+  /** Iterator for a standard (non-transposed) `ArrayNd` */
+  private class StandardIterator extends ArrayNdIterator {
+    override protected def updateState(): Unit = {
+      counter += 1
+      idx += 1
+    }
+  }
+
+  /** Iterator for a transposed `ArrayNd` */
+  private class TransposedIterator extends ArrayNdIterator {
+    private val indices = Array.fill[Int](shape.length.max(1))(idx)
+    private val shapeArray = shape.toArray
+    private val maxDimIdx = shape.length - 1
+    private val products: Array[Int] = {
+      val reverse = shape.reverse
+      (shape.length until 0 by -1).map(n => reverse.drop(n).product).toArray
+    }
+
+    override protected def updateState(): Unit = {
+      @tailrec
+      def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
+        indices(dim) += 1
+        val increment = products(dim) + (if (dim < maxDimIdx) products(dim + 1) else 0)
+        idx += increment
+        if (idx >= elements.length) {
+          idx = idx - elements.length
+        }
+      } else {
+        indices(dim) = 0
+        update1dIdx(dim - 1)
+      }
+
+      counter += 1
+      if (hasNext) update1dIdx(indices.length - 1)
     }
   }
 
