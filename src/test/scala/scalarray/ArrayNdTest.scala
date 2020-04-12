@@ -134,4 +134,16 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
     transposeArr3d.transpose.flatten shouldEqual flattened
   }
 
+  it should "transpose a 4D array correctly" in {
+    val flattened = ArrayNd.fromArray(
+      Array(0, 40, 80, 20, 60, 100, 4, 44, 84, 24, 64, 104, 8, 48, 88, 28, 68, 108, 12, 52, 92, 32, 72, 112, 16, 56,
+        96, 36, 76, 116, 1, 41, 81, 21, 61, 101, 5, 45, 85, 25, 65, 105, 9, 49, 89, 29, 69, 109, 13, 53, 93, 33,
+        73, 113, 17, 57, 97, 37, 77, 117, 2, 42, 82, 22, 62, 102, 6, 46, 86, 26, 66, 106, 10, 50, 90, 30, 70, 110,
+        14, 54, 94, 34, 74, 114, 18, 58, 98, 38, 78, 118, 3, 43, 83, 23, 63, 103, 7, 47, 87, 27, 67, 107, 11, 51,
+        91, 31, 71, 111, 15, 55, 95, 35, 75, 115,  19, 59, 99, 39, 79, 119
+      )
+    )
+    ArrayNd.fromArray((0 until 120).toArray).reshape(3, 2, 5, 4).transpose.flatten shouldEqual flattened
+  }
+
 }

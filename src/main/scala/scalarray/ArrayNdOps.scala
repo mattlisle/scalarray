@@ -114,8 +114,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   private class TransposedIterator extends ArrayNdIterator {
     private val indices = Array.fill[Int](shape.length.max(1))(idx)
     private val shapeArray = shape.toArray
-    private val maxDimIdx = shape.length - 1
-    private val products: Array[Int] = {
+    private val strides: Array[Int] = {
       val reverse = shape.reverse
       (shape.length until 0 by -1).map(n => reverse.drop(n).product).toArray
     }
@@ -124,12 +123,9 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
       @tailrec
       def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
         indices(dim) += 1
-        val increment = products(dim) + (if (dim < maxDimIdx) products(dim + 1) else 0)
-        idx += increment
-        if (idx >= elements.length) {
-          idx = idx - elements.length
-        }
+        idx += strides(dim)
       } else {
+        idx -= strides(dim) * indices(dim)
         indices(dim) = 0
         update1dIdx(dim - 1)
       }
@@ -137,6 +133,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
       counter += 1
       if (hasNext) update1dIdx(indices.length - 1)
     }
+
   }
 
 }
