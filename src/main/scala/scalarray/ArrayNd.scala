@@ -12,13 +12,13 @@ import scala.reflect.ClassTag
   *
   * @param elements `NdArray` content in raw, 1D form
   * @param shape sequence of dimension sizes, the product of which must equal the number of elements
-  * @param transposed if the matrix is row-major (default) or column major (when transposed)
-  * @tparam A any numeric type
+  * @param contiguous equivalent to c-contiguous in numpy, or row-major if the array is 2D
+  * @tparam A numeric type
   */
 class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
   val elements: Array[A],
   val shape: Seq[Int],
-  override protected val transposed: Boolean
+  override protected val contiguous: Boolean
 ) extends ArrayNdOps[A] {
 
   require(shape.product == elements.length, s"Invalid shape for $elements.length elements: $shape")
@@ -34,36 +34,24 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
     */
   def apply(indices: Int*): A = {
     require(indices.length == shape.length, s"All dimensions must be specified but was given: $indices")
-    val idx1d = if (transposed) get1dIndex(indices.reverse, shape.reverse) else get1dIndex(indices, shape)
+    val idx1d = get1dIndex(indices)
     elements(idx1d)
   }
 
-  @tailrec
-  private def get1dIndex(idxSlice: Seq[Int], shapeSlice: Seq[Int], prev: Int = 0): Int = (idxSlice, shapeSlice) match {
-    case (Seq(), Seq())   => prev
-    case (Seq(idx, idxs @ _*), Seq(dim, dims @ _*)) =>
-      val positiveIdx = if (idx >= 0) idx else idx + dim
-      get1dIndex(idxs, dims, prev + positiveIdx * dims.product)
-  }
-
-  /**
-    * Returns a new array with the elements copied
-    *
-    * @param newShape for the new array
-    */
-  protected def withNewShape(newShape: Seq[Int])(implicit classTag: ClassTag[A]): ArrayNd[A] = if (!transposed) {
-    new ArrayNd(elements, newShape, transposed)
-  } else {
-    val copiedElements = {
-      val buf = new ArrayBuffer[A]()
-      iterator.foreach(elem => buf += elem)
-      buf.toArray
+  private def get1dIndex(indexNd: Seq[Int]): Int = {
+    @tailrec
+    def helper(idxs: Seq[Int], shp: Seq[Int], str: Seq[Int], prev: Int = 0): Int = (idxs, shp, str) match {
+      case (Seq(), Seq(), _) =>
+        prev
+      case (Seq(idx, idxs @ _*), Seq(dim, dims @ _*), Seq(step, steps @ _*)) =>
+        val positiveIdx = if (idx >= 0) idx else idx + dim
+        helper(idxs, dims, steps, prev + positiveIdx * step)
     }
-    new ArrayNd(copiedElements, newShape, transposed = false)
+    helper(indexNd, shape, strides)
   }
 
   /** 1D representation of the array */
-  def flatten(implicit classTag: ClassTag[A]): ArrayNd[A] = this.withNewShape(Seq(elements.length))
+  def flatten(implicit classTag: ClassTag[A]): ArrayNd[A] = this.reshape(elements.length)
 
   /**
     * Takes a view on same underlying data
@@ -73,19 +61,29 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
   def reshape(dimensions: Int*)(implicit classTag: ClassTag[A]): ArrayNd[A] = {
     require(dimensions.count(size => size == -1 || size == 0) <= 1, s"Only one free dimension allowed")
 
+    val len = elements.length
     val freeIndex = dimensions.indexOf(-1)
     val partialLength = dimensions.filterNot(_ == -1).product
     val errorMessage = s"Cannot fit $elements.length elements into shape $dimensions"
 
     val newShape = if (freeIndex >= 0) {
-      require(partialLength <= elements.length && elements.length % partialLength == 0 || elements.length == 0, errorMessage)
-      dimensions.updated(freeIndex, elements.length / partialLength)
+      require(partialLength <= len && len % partialLength == 0 || len == 0, errorMessage)
+      dimensions.updated(freeIndex, len / partialLength)
     } else {
-      require(partialLength == elements.length, errorMessage)
+      require(partialLength == len, errorMessage)
       dimensions
     }
-
-    this.withNewShape(newShape)
+    if (contiguous) {
+      new ArrayNd(elements, newShape, contiguous)
+    } else {
+      val copiedElements = new Array[A](len)
+      var idx = 0
+      iterator.foreach { elem =>
+        copiedElements(idx) = elem
+        idx += 1
+      }
+      new ArrayNd(copiedElements, newShape, contiguous = true)
+    }
   }
 
   /** Transpose matrix according to same definition as used in numpy */
@@ -93,7 +91,19 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
     this
   } else {
     val newShape = shape.reverse
-    new ArrayNd(elements, newShape, !transposed)
+    new ArrayNd(elements, newShape, !contiguous)
+  }
+
+  override def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B] = {
+    val len = elements.length
+    val dest = new Array[B](len)
+
+    var idx = 0
+    iterator.foreach { elem =>
+      dest(idx) = f(elem)
+      idx += 1
+    }
+    new ArrayNd(dest, shape, contiguous = true)
   }
 
   override def equals(that: Any): Boolean = that match {
@@ -203,7 +213,7 @@ object ArrayNd {
     new ArrayNd(
       elements = Array.fill(shape.product)(elem),
       shape = shape,
-      transposed = false
+      contiguous = true
     )
   }
 
@@ -216,7 +226,7 @@ object ArrayNd {
   def fromArray[@specialized(Char, Int, Long, Float, Double) A: Numeric](data: Array[A]) = new ArrayNd[A](
     elements = data,
     shape = Seq(data.length),
-    transposed = false
+    contiguous = true
   )
   
 }

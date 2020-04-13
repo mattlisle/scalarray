@@ -16,7 +16,17 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
 
   val elements: Array[A]
   val shape: Seq[Int]
-  protected val transposed: Boolean
+  protected val contiguous: Boolean
+
+  /**
+    * Defined such that the inner product of this and a given ND index yield the 1D index in `elements`
+    * @return strides corresponding to the shape of this array
+    */
+  def strides: Seq[Int] = if (contiguous) {
+    shape.indices.map(n => shape.drop(n + 1).product)
+  } else {
+    shape.indices.map(n => shape.take(n).product)
+  }
 
   /** Returns if the array is empty */
   @`inline` def isEmpty: Boolean = elements.isEmpty
@@ -50,7 +60,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   def lastOption: Option[A] = if (isEmpty) None else Some(last)
 
   /** Iterator that returns elements in row-major order regardless of whether the array is transposed */
-  def iterator: Iterator[A] = if (transposed) new TransposedIterator else new StandardIterator
+  def iterator: Iterator[A] = if (contiguous) new ContiguousIterator else new NonContiguousIterator
 
   /**
     * Map operation for n-dimensional arrays, which must return another n-dimensional array of the same shape
@@ -60,22 +70,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     * @tparam B numeric type of element
     * @return array with elements of type `B`
     */
-  def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B] = {
-    val len = elements.length
-    val dest = new Array[B](len)
-
-    var idx = 0
-    iterator.foreach { elem =>
-      dest(idx) = f(elem)
-      idx += 1
-    }
-    if (transposed) {
-      val newShape = shape.reverse
-      new ArrayNd (dest, newShape, transposed = false)
-    } else {
-      new ArrayNd (dest, shape, transposed = false)
-    }
-  }
+  def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B]
 
   /**
     * Parent class for iterators for `ArrayNd`s
@@ -103,7 +98,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   }
 
   /** Iterator for a standard (non-transposed) `ArrayNd` */
-  private class StandardIterator extends ArrayNdIterator {
+  private class ContiguousIterator extends ArrayNdIterator {
     override protected def updateState(): Unit = {
       counter += 1
       idx += 1
@@ -111,21 +106,18 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   }
 
   /** Iterator for a transposed `ArrayNd` */
-  private class TransposedIterator extends ArrayNdIterator {
+  private class NonContiguousIterator extends ArrayNdIterator {
     private val indices = Array.fill[Int](shape.length.max(1))(idx)
     private val shapeArray = shape.toArray
-    private val strides: Array[Int] = {
-      val reverse = shape.reverse
-      (shape.length until 0 by -1).map(n => reverse.drop(n).product).toArray
-    }
+    private val thisStrides: Array[Int] = strides.toArray
 
     override protected def updateState(): Unit = {
       @tailrec
       def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
         indices(dim) += 1
-        idx += strides(dim)
+        idx += thisStrides(dim)
       } else {
-        idx -= strides(dim) * indices(dim)
+        idx -= thisStrides(dim) * indices(dim)
         indices(dim) = 0
         update1dIdx(dim - 1)
       }
