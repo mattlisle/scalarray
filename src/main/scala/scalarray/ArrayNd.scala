@@ -123,10 +123,12 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
     def getNumDigits(x: A): Int = if (x == 0) {
       1
     } else {
-      (math.log10(implicitly[Numeric[A]].toDouble(x)) + 1).floor.toInt.abs
+      val asDouble = implicitly[Numeric[A]].toDouble(x)
+      val isNegative = asDouble < 0
+      (math.log10(asDouble.abs) + 1).floor.toInt + (if (isNegative) 1 else 0)
     }
 
-    val maxDigits = getNumDigits(elements.max)
+    val maxDigits = elements.map(getNumDigits).max
 
     @tailrec
     def getIntervals(shapeSlice: Seq[Int]): Seq[Int] = shapeSlice match {
