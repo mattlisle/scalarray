@@ -148,35 +148,64 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
 
   behavior of "broadcasting"
 
-  it should "broadcast two contiguous matrices together with same dimensionality, same shapes" in {
-    val base = ArrayNd.fill(10)(1)
-    val x = base.reshape(1, 2, 5)
-    val y = base.reshape(1, 2, 5)
-    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(1, 2, 5)(2)
-  }
+//  it should "broadcast two contiguous matrices together with same dimensionality, same shapes" in {
+//    val base = ArrayNd.fill(10)(1)
+//    val x = base.reshape(1, 2, 5)
+//    val y = base.reshape(1, 2, 5)
+//    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(1, 2, 5)(2)
+//  }
+//
+//  it should "broadcast two contiguous matrices together with same dimensionality, different shapes" in {
+//    val base = ArrayNd.fill(10)(1)
+//    val x = base.reshape(1, 2, 5)
+//    val y = base.reshape(5, 2, 1)
+//    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(5, 2, 5)(2)
+//  }
 
-  it should "broadcast two contiguous matrices together with same dimensionality, different shapes" in {
-    val base = ArrayNd.fill(10)(1)
-    val x = base.reshape(1, 2, 5)
-    val y = base.reshape(5, 2, 1)
-    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(5, 2, 5)(2)
-  }
+//  it should "broadcast two contiguous matrices together with different dimensionality, different shapes" in {
+//    val base = ArrayNd.fill(10)(1)
+//    val x = base.reshape(2, 5)
+//    val y = base.reshape(5, 2, 1)
+//    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(5, 2, 5)(2)
+//  }
 
   it should "broadcast two contiguous matrices together with different dimensionality, different shapes" in {
-    val base = ArrayNd.fill(10)(1)
-    val x = base.reshape(2, 5)
-    val y = base.reshape(5, 2, 1)
-    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(5, 2, 5)(2)
+    val base = ArrayNd.fromArray(Range(0, 6).toArray)
+    val x = base.reshape(2, 3)
+    val y = base.reshape(3, 2, 1)
+    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fromArray(
+      Array(0, 1, 2, 4, 5, 6, 2, 3, 4, 6, 7, 8, 4, 5, 6, 8, 9, 10)
+    ).reshape(3, 2, 3)
   }
 
-  it should "broadcast two non-contiguous matrices together with different dimensionality, different shapes" in {
-    val base = ArrayNd.fromArray(Range(0, 6).toArray)
-    val x = base.reshape(3, 2).transpose
-    val y = base.reshape(3, 2, 1)
-    def f(a: Int, b: Int): Int = b
-    x.broadcast(y)(f) shouldEqual ArrayNd.fromArray(
-      Array(0, 2, 4, 2, 4, 6, 2, 4, 6, 4, 6, 8, 4, 6, 8, 6, 8, 10)
-    ).reshape(3, 2, 3)
+//  it should "broadcast two non-contiguous matrices together with different dimensionality, different shapes" in {
+//    val base = ArrayNd.fromArray(Range(0, 6).toArray)
+//    val x = base.reshape(3, 2).transpose
+//    val y = base.reshape(3, 2, 1)
+//    def f(a: Int, b: Int): Int = b
+//    x.broadcast(y)(f) shouldEqual ArrayNd.fromArray(
+//      Array(0, 2, 4, 2, 4, 6, 2, 4, 6, 4, 6, 8, 4, 6, 8, 6, 8, 10)
+//    ).reshape(3, 2, 3)
+//  }
+
+  behavior of "broadcasting to a new shape"
+
+  private val beforeShape = Seq(3, 1, 4)
+  private val beforeBroadcasting = ArrayNd.fill(beforeShape: _*)(0)
+
+  it should s"broadcast contiguous array to shape with same dimensionality, same dimensions" in {
+    val after = beforeBroadcasting.broadcastTo(beforeShape)
+    (after.shape, after.strides) shouldEqual(beforeShape, beforeBroadcasting.strides)
+  }
+
+  it should s"broadcast contiguous array to shape with same dimensionality, different dimensions" in {
+    val after = beforeBroadcasting.broadcastTo(Seq(1, 2, 1))
+    (after.shape, after.strides) shouldEqual(Seq(3, 2, 4), Seq(4, 0, 1))
+  }
+
+  it should s"broadcast contiguous array to shape with different dimensionality, different dimensions" in {
+    val after = beforeBroadcasting.broadcastTo(Seq(5, 1, 2, 1))
+    (after.shape, after.strides) shouldEqual(Seq(5, 3, 2, 4), Seq(0, 4, 0, 1))
   }
 
 }

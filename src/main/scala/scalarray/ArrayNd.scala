@@ -18,10 +18,20 @@ import scala.reflect.ClassTag
 class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
   val elements: Array[A],
   val shape: Seq[Int],
+  override protected val _strides: Option[Seq[Int]],
   override protected val contiguous: Boolean
 ) extends ArrayNdOps[A] {
 
-  require(shape.product == elements.length, s"Invalid shape for $elements.length elements: $shape")
+  require(
+    if (_strides.isDefined) {
+      shape.zip(_strides.get).map {
+        case (dim, stride) => if (stride == 0) 1 else dim
+      }.product == elements.length
+    } else {
+      shape.product == elements.length
+    },
+    s"Invalid shape for $elements.length elements: $shape"
+  )
 
   /**
     * Finds an element at the specified indices
@@ -74,7 +84,7 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
       dimensions
     }
     if (contiguous) {
-      new ArrayNd(elements, newShape, contiguous)
+      new ArrayNd(elements, newShape, None, contiguous)
     } else {
       val copiedElements = new Array[A](len)
       var idx = 0
@@ -82,7 +92,7 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
         copiedElements(idx) = elem
         idx += 1
       }
-      new ArrayNd(copiedElements, newShape, contiguous = true)
+      new ArrayNd(copiedElements, newShape, None, contiguous = true)
     }
   }
 
@@ -91,7 +101,7 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
     this
   } else {
     val newShape = shape.reverse
-    new ArrayNd(elements, newShape, !contiguous)
+    new ArrayNd(elements, newShape, None, !contiguous)
   }
 
   override def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B] = {
@@ -103,7 +113,21 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
       dest(idx) = f(elem)
       idx += 1
     }
-    new ArrayNd(dest, shape, contiguous = true)
+    new ArrayNd(dest, shape, None, contiguous = true)
+  }
+
+  override def broadcastTo(thatShape: Seq[Int]): ArrayNd[A] = {
+    if (shape == thatShape) {
+      this
+    } else {
+      val (broadcastShape, broadcastStrides) = getBroadcastParams(thatShape)
+      new ArrayNd[A](
+        elements = elements,
+        shape = broadcastShape,
+        _strides = Some(broadcastStrides),
+        contiguous = false
+      )
+    }
   }
 
   override def equals(that: Any): Boolean = that match {
@@ -215,6 +239,7 @@ object ArrayNd {
     new ArrayNd(
       elements = Array.fill(shape.product)(elem),
       shape = shape,
+      _strides = None,
       contiguous = true
     )
   }
@@ -228,6 +253,7 @@ object ArrayNd {
   def fromArray[@specialized(Char, Int, Long, Float, Double) A: Numeric](data: Array[A]) = new ArrayNd[A](
     elements = data,
     shape = Seq(data.length),
+    _strides = None,
     contiguous = true
   )
   

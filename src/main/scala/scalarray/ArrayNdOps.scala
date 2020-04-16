@@ -17,16 +17,19 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
 
   val elements: Array[A]
   val shape: Seq[Int]
+  protected val _strides: Option[Seq[Int]]
   protected val contiguous: Boolean
 
   /**
     * Defined such that the inner product of this and a given ND index yield the 1D index in `elements`
     * @return strides corresponding to the shape of this array
     */
-  def strides: Seq[Int] = if (contiguous) {
-    shape.indices.map(n => shape.drop(n + 1).product)
-  } else {
-    shape.indices.map(n => shape.take(n).product)
+  def strides: Seq[Int] = _strides.getOrElse {
+    if (contiguous) {
+      shape.indices.map(n => shape.drop(n + 1).product)
+    } else {
+      shape.indices.map(n => shape.take(n).product)
+    }
   }
 
   /** Returns if the array is empty */
@@ -61,7 +64,13 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   def lastOption: Option[A] = if (isEmpty) None else Some(last)
 
   /** Iterator that returns elements in row-major order regardless of whether the array is transposed */
-  def iterator: Iterator[A] = if (contiguous) new ContiguousIterator else new NonContiguousIterator
+  def iterator: Iterator[A] = if (contiguous) {
+    new ContiguousIterator
+  } else if (strides.contains(0)) {
+    new ZeroDimIterator
+  } else {
+    new NonContiguousIterator
+  }
 
   /**
     * Returns an iterator such that the shape of this array is broadcast to that of another array
@@ -87,6 +96,12 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B]
 
   /**
+    * Return a new array with the same underlying elements and a new shape
+    * @param thatShape to broadcast to
+    */
+  def broadcastTo(thatShape: Seq[Int]): ArrayNd[A]
+
+  /**
     * Operates on broadcasted array with a specified function
     *
     * @param that array to broadcast with
@@ -94,10 +109,12 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     * @return new n-dimensional array
     */
   def broadcast(that: ArrayNd[A])(f: (A, A) => A)(implicit num: Numeric[A], tag: ClassTag[A]): ArrayNd[A] = {
-    val thisIt = broadcastIterator(that.shape)
-    val thatIt = that.broadcastIterator(shape)
+    val thisBroadcasted = broadcastTo(that.shape)
 
-    val newShape = thisIt.broadcastShape
+    val thisIt = broadcastTo(that.shape).iterator
+    val thatIt = that.broadcastTo(shape).iterator
+
+    val newShape = thisBroadcasted.shape
     val len = newShape.product
     val newElems: Array[A] = new Array[A](len)
 
@@ -106,7 +123,38 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
       newElems(idx) = f(thisIt.next(), thatIt.next())
       idx += 1
     }
-    new ArrayNd(newElems, newShape, contiguous = true)
+    new ArrayNd(newElems, newShape, None, contiguous = true)
+  }
+
+  /**
+    * Gets parameters needed to build an array broadcasted to the provided shape
+    * @param thatShape shape that we're broadcasting to
+    * @return shape and strides of the broadcasted array
+    */
+  protected def getBroadcastParams(thatShape: Seq[Int]): (Seq[Int], Seq[Int]) = {
+    @tailrec
+    def buildResults(
+      thisShp: Seq[Int],
+      thatShp: Seq[Int],
+      thisStrides: Seq[Int],
+      broadcastStrides: Seq[Int],
+      broadcastShape: Seq[Int]
+    ): (Seq[Int], Seq[Int]) = (thisShp, thatShp) match {
+      case (Seq(x, xs @ _*), Seq(y, ys @ _*)) =>
+        if (x == y || x == 1 || y == 1) {
+          val nextStride = if (x == 1 && y != 1) 0 else thisStrides.head
+          buildResults(xs, ys, thisStrides.tail, nextStride +: broadcastStrides, x.max(y) +: broadcastShape)
+        } else {
+          throw new Exception
+        }
+      case (Seq(x, xs @ _*), empty @ Seq()) =>
+        buildResults(xs, empty, thisStrides.tail, thisStrides.head +: broadcastStrides, x +: broadcastShape)
+      case (empty @ Seq(), Seq(y, ys @ _*)) =>
+        buildResults(empty, ys, empty, 0 +: broadcastStrides ,y +: broadcastShape)
+      case _ => (broadcastShape, broadcastStrides)
+    }
+
+    buildResults(shape.reverse, thatShape.reverse, strides.reverse, Seq[Int](), Seq[Int]())
   }
 
   /**
@@ -168,7 +216,44 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
       counter += 1
       if (hasNext) update1dIdx(indices.length - 1)
     }
+  }
 
+  /** Iterator for a transposed `ArrayNd` */
+  private class ZeroDimIterator extends ArrayNdIterator {
+    private val indices = Array.fill[Int](shape.length.max(1))(idx)
+    private val maxDimIdx = shape.length - 1
+    private val shapeArray = shape.toArray
+    private val thisStrides: Array[Int] = strides.toArray
+
+    override protected def updateState(): Unit = {
+      @tailrec
+      def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
+        indices(dim) += 1
+        val stride = thisStrides(dim)
+        val increment = if (stride == 0) {
+          accumulateIncrement(dim, stride, 0)
+        } else {
+          stride
+        }
+        idx += increment
+      } else {
+        idx -= thisStrides(dim) * indices(dim)
+        indices(dim) = 0
+        update1dIdx(dim - 1)
+      }
+
+      @tailrec
+      def accumulateIncrement(dim: Int, stride: Int, total: Int): Int = if (dim < maxDimIdx) {
+        val part = if (stride == 0) 0 else -stride * indices(dim)
+        accumulateIncrement(dim + 1, thisStrides(dim), total + part)
+      } else {
+        total
+      }
+
+      counter += 1
+      if (hasNext) update1dIdx(indices.length - 1)
+      println(s"shape: $shape, stride: ${thisStrides.toSeq}, indices: ${indices.toSeq}, index: ${idx}")
+    }
   }
 
   /** If the shapes match, the iterator functions the same as the standard iterator */
