@@ -64,13 +64,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   def lastOption: Option[A] = if (isEmpty) None else Some(last)
 
   /** Iterator that returns elements in row-major order regardless of whether the array is transposed */
-  def iterator: Iterator[A] = if (contiguous) {
-    new ContiguousIterator
-  } else if (strides.contains(0)) {
-    new ZeroDimIterator
-  } else {
-    new NonContiguousIterator
-  }
+  def iterator: Iterator[A] = if (contiguous) new ContiguousIterator else new NonContiguousIterator
 
   /**
     * Returns an iterator such that the shape of this array is broadcast to that of another array
@@ -198,6 +192,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
 
   /** Iterator for a transposed `ArrayNd` */
   private class NonContiguousIterator extends ArrayNdIterator {
+    override protected lazy val maxCount: Int = shape.product
     private val indices = Array.fill[Int](shape.length.max(1))(idx)
     private val shapeArray = shape.toArray
     private val thisStrides: Array[Int] = strides.toArray
@@ -205,9 +200,11 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     override protected def updateState(): Unit = {
       @tailrec
       def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
+        println(s"dim: $dim")
         indices(dim) += 1
         idx += thisStrides(dim)
       } else {
+        println(s"dim: $dim")
         idx -= thisStrides(dim) * indices(dim)
         indices(dim) = 0
         update1dIdx(dim - 1)
@@ -215,44 +212,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
 
       counter += 1
       if (hasNext) update1dIdx(indices.length - 1)
-    }
-  }
-
-  /** Iterator for a transposed `ArrayNd` */
-  private class ZeroDimIterator extends ArrayNdIterator {
-    private val indices = Array.fill[Int](shape.length.max(1))(idx)
-    private val maxDimIdx = shape.length - 1
-    private val shapeArray = shape.toArray
-    private val thisStrides: Array[Int] = strides.toArray
-
-    override protected def updateState(): Unit = {
-      @tailrec
-      def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
-        indices(dim) += 1
-        val stride = thisStrides(dim)
-        val increment = if (stride == 0) {
-          accumulateIncrement(dim, stride, 0)
-        } else {
-          stride
-        }
-        idx += increment
-      } else {
-        idx -= thisStrides(dim) * indices(dim)
-        indices(dim) = 0
-        update1dIdx(dim - 1)
-      }
-
-      @tailrec
-      def accumulateIncrement(dim: Int, stride: Int, total: Int): Int = if (dim < maxDimIdx) {
-        val part = if (stride == 0) 0 else -stride * indices(dim)
-        accumulateIncrement(dim + 1, thisStrides(dim), total + part)
-      } else {
-        total
-      }
-
-      counter += 1
-      if (hasNext) update1dIdx(indices.length - 1)
-      println(s"shape: $shape, stride: ${thisStrides.toSeq}, indices: ${indices.toSeq}, index: ${idx}")
+      println(s"shape: $shape, stride: ${thisStrides.toSeq}, indices: ${indices.toSeq}")
     }
   }
 
