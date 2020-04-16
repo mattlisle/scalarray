@@ -148,27 +148,6 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
 
   behavior of "broadcasting"
 
-//  it should "broadcast two contiguous matrices together with same dimensionality, same shapes" in {
-//    val base = ArrayNd.fill(10)(1)
-//    val x = base.reshape(1, 2, 5)
-//    val y = base.reshape(1, 2, 5)
-//    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(1, 2, 5)(2)
-//  }
-//
-//  it should "broadcast two contiguous matrices together with same dimensionality, different shapes" in {
-//    val base = ArrayNd.fill(10)(1)
-//    val x = base.reshape(1, 2, 5)
-//    val y = base.reshape(5, 2, 1)
-//    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(5, 2, 5)(2)
-//  }
-
-//  it should "broadcast two contiguous matrices together with different dimensionality, different shapes" in {
-//    val base = ArrayNd.fill(10)(1)
-//    val x = base.reshape(2, 5)
-//    val y = base.reshape(5, 2, 1)
-//    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fill(5, 2, 5)(2)
-//  }
-
   it should "broadcast two contiguous matrices together with different dimensionality, different shapes" in {
     val base = ArrayNd.fromArray(Range(0, 6).toArray)
     val x = base.reshape(2, 3)
@@ -178,15 +157,14 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
     ).reshape(3, 2, 3)
   }
 
-//  it should "broadcast two non-contiguous matrices together with different dimensionality, different shapes" in {
-//    val base = ArrayNd.fromArray(Range(0, 6).toArray)
-//    val x = base.reshape(3, 2).transpose
-//    val y = base.reshape(3, 2, 1)
-//    def f(a: Int, b: Int): Int = b
-//    x.broadcast(y)(f) shouldEqual ArrayNd.fromArray(
-//      Array(0, 2, 4, 2, 4, 6, 2, 4, 6, 4, 6, 8, 4, 6, 8, 6, 8, 10)
-//    ).reshape(3, 2, 3)
-//  }
+  it should "broadcast two non-contiguous matrices together with different dimensionality, different shapes" in {
+    val base = ArrayNd.fromArray(Range(0, 6).toArray)
+    val x = base.reshape(3, 2).transpose
+    val y = base.reshape(3, 2, 1)
+    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fromArray(
+      Array(0, 2, 4, 2, 4, 6, 2, 4, 6, 4, 6, 8, 4, 6, 8, 6, 8, 10)
+    ).reshape(3, 2, 3)
+  }
 
   behavior of "broadcasting to a new shape"
 

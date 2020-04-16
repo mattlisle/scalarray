@@ -101,7 +101,8 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
     this
   } else {
     val newShape = shape.reverse
-    new ArrayNd(elements, newShape, None, !contiguous)
+    val newStrides = _strides.map(_.reverse)
+    new ArrayNd(elements, newShape, newStrides, !contiguous)
   }
 
   override def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B] = {
