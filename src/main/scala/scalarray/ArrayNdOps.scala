@@ -89,23 +89,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     * @param f operation to perform on pairs of elements
     * @return new n-dimensional array
     */
-  def broadcast(that: ArrayNd[A])(f: (A, A) => A)(implicit num: Numeric[A], tag: ClassTag[A]): ArrayNd[A] = {
-    val thisBroadcasted = broadcastTo(that.shape)
-
-    val thisIt = broadcastTo(that.shape).iterator
-    val thatIt = that.broadcastTo(shape).iterator
-
-    val newShape = thisBroadcasted.shape
-    val len = newShape.product
-    val newElems: Array[A] = new Array[A](len)
-
-    var idx = 0
-    while (idx < len) {
-      newElems(idx) = f(thisIt.next(), thatIt.next())
-      idx += 1
-    }
-    new ArrayNd(newElems, newShape, None, contiguous = true)
-  }
+  def broadcastWith(that: ArrayNd[A])(f: (A, A) => A)(implicit tag: ClassTag[A]): ArrayNd[A]
 
   /**
     * Gets parameters needed to build an array broadcasted to the provided shape
@@ -181,25 +165,24 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   private class NonContiguousIterator extends ArrayNdIterator {
     override protected lazy val maxCount: Int = shape.product
     private val indices = Array.fill[Int](shape.length.max(1))(idx)
-    private val shapeArray = shape.toArray
-    private val thisStrides: Array[Int] = strides.toArray
+    private val shapeArray = new Array[Int](shape.length)
+    shape.copyToArray(shapeArray)
+    private val stridesArray: Array[Int] = new Array[Int](shape.length)
+    strides.copyToArray(stridesArray)
 
     override protected def updateState(): Unit = {
       @tailrec
       def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
-        println(s"dim: $dim")
         indices(dim) += 1
-        idx += thisStrides(dim)
+        idx += stridesArray(dim)
       } else {
-        println(s"dim: $dim")
-        idx -= thisStrides(dim) * indices(dim)
+        idx -= stridesArray(dim) * indices(dim)
         indices(dim) = 0
         update1dIdx(dim - 1)
       }
 
       counter += 1
       if (hasNext) update1dIdx(indices.length - 1)
-      println(s"shape: $shape, stride: ${thisStrides.toSeq}, indices: ${indices.toSeq}")
     }
   }
 }

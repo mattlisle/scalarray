@@ -146,13 +146,27 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
     ArrayNd.fromArray((0 until 120).toArray).reshape(3, 2, 5, 4).transpose.flatten shouldEqual flattened
   }
 
+  behavior of "mapping"
+
+  it should "map an array of one type to another" in {
+    val arr = Array.fill(10)(0.5)
+    val arrNd = ArrayNd.fill(10)(1)
+    arrNd.map(_.toDouble / 2) shouldEqual ArrayNd.fromArray(arr)
+  }
+
+  it should "map a transposed array" in {
+    val before = ArrayNd.fromArray((0 until 6).toArray).reshape(2, 3)
+    val after = ArrayNd.fromArray((0 until 12 by 2).toArray).reshape(2, 3).transpose
+    before.map(_ * 2).transpose shouldEqual after
+  }
+
   behavior of "broadcasting"
 
   it should "broadcast two contiguous matrices together with different dimensionality, different shapes" in {
     val base = ArrayNd.fromArray(Range(0, 6).toArray)
     val x = base.reshape(2, 3)
     val y = base.reshape(3, 2, 1)
-    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fromArray(
+    x.broadcastWith(y)(_ + _) shouldEqual ArrayNd.fromArray(
       Array(0, 1, 2, 4, 5, 6, 2, 3, 4, 6, 7, 8, 4, 5, 6, 8, 9, 10)
     ).reshape(3, 2, 3)
   }
@@ -161,7 +175,7 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
     val base = ArrayNd.fromArray(Range(0, 6).toArray)
     val x = base.reshape(3, 2).transpose
     val y = base.reshape(3, 2, 1)
-    x.broadcast(y)(_ + _) shouldEqual ArrayNd.fromArray(
+    x.broadcastWith(y)(_ + _) shouldEqual ArrayNd.fromArray(
       Array(0, 2, 4, 2, 4, 6, 2, 4, 6, 4, 6, 8, 4, 6, 8, 6, 8, 10)
     ).reshape(3, 2, 3)
   }

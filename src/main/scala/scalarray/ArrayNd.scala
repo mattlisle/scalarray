@@ -12,6 +12,7 @@ import scala.reflect.ClassTag
   *
   * @param elements `NdArray` content in raw, 1D form
   * @param shape sequence of dimension sizes, the product of which must equal the number of elements
+  * @param _strides override strides definition for non-contiguous arrays
   * @param contiguous equivalent to c-contiguous in numpy, or row-major if the array is 2D
   * @tparam A numeric type
   */
@@ -22,6 +23,8 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
   override protected val contiguous: Boolean
 ) extends ArrayNdOps[A] {
 
+  _strides.foreach(s => require(shape.length == s.length, s"Invalid strides $s for shape $shape"))
+
   require(
     if (_strides.isDefined) {
       shape.zip(_strides.get).map {
@@ -30,7 +33,7 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
     } else {
       shape.product == elements.length
     },
-    s"Invalid shape for $elements.length elements: $shape"
+    s"Invalid shape for ${elements.length} elements: $shape"
   )
 
   /**
@@ -129,6 +132,24 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
         contiguous = false
       )
     }
+  }
+
+  override def broadcastWith(that: ArrayNd[A])(f: (A, A) => A)(implicit tag: ClassTag[A]): ArrayNd[A] = {
+    val thisBroadcasted = broadcastTo(that.shape)
+
+    val thisIt = broadcastTo(that.shape).iterator
+    val thatIt = that.broadcastTo(shape).iterator
+
+    val newShape = thisBroadcasted.shape
+    val len = newShape.product
+    val newElems: Array[A] = new Array[A](len)
+
+    var idx = 0
+    while (idx < len) {
+      newElems(idx) = f(thisIt.next(), thatIt.next())
+      idx += 1
+    }
+    new ArrayNd(newElems, newShape, None, contiguous = true)
   }
 
   override def equals(that: Any): Boolean = that match {
