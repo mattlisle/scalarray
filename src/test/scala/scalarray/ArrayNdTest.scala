@@ -140,10 +140,64 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
         96, 36, 76, 116, 1, 41, 81, 21, 61, 101, 5, 45, 85, 25, 65, 105, 9, 49, 89, 29, 69, 109, 13, 53, 93, 33,
         73, 113, 17, 57, 97, 37, 77, 117, 2, 42, 82, 22, 62, 102, 6, 46, 86, 26, 66, 106, 10, 50, 90, 30, 70, 110,
         14, 54, 94, 34, 74, 114, 18, 58, 98, 38, 78, 118, 3, 43, 83, 23, 63, 103, 7, 47, 87, 27, 67, 107, 11, 51,
-        91, 31, 71, 111, 15, 55, 95, 35, 75, 115,  19, 59, 99, 39, 79, 119
+        91, 31, 71, 111, 15, 55, 95, 35, 75, 115, 19, 59, 99, 39, 79, 119
       )
     )
     ArrayNd.fromArray((0 until 120).toArray).reshape(3, 2, 5, 4).transpose.flatten shouldEqual flattened
+  }
+
+  behavior of "mapping"
+
+  it should "map an array of one type to another" in {
+    val arr = Array.fill(10)(0.5)
+    val arrNd = ArrayNd.fill(10)(1)
+    arrNd.map(_.toDouble / 2) shouldEqual ArrayNd.fromArray(arr)
+  }
+
+  it should "map a transposed array" in {
+    val before = ArrayNd.fromArray((0 until 6).toArray).reshape(2, 3)
+    val after = ArrayNd.fromArray((0 until 12 by 2).toArray).reshape(2, 3).transpose
+    before.map(_ * 2).transpose shouldEqual after
+  }
+
+  behavior of "broadcasting"
+
+  it should "broadcast two contiguous matrices together with different dimensionality, different shapes" in {
+    val base = ArrayNd.fromArray(Range(0, 6).toArray)
+    val x = base.reshape(2, 3)
+    val y = base.reshape(3, 2, 1)
+    x.broadcastWith(y)(_ + _) shouldEqual ArrayNd.fromArray(
+      Array(0, 1, 2, 4, 5, 6, 2, 3, 4, 6, 7, 8, 4, 5, 6, 8, 9, 10)
+    ).reshape(3, 2, 3)
+  }
+
+  it should "broadcast two non-contiguous matrices together with different dimensionality, different shapes" in {
+    val base = ArrayNd.fromArray(Range(0, 6).toArray)
+    val x = base.reshape(3, 2).transpose
+    val y = base.reshape(3, 2, 1)
+    x.broadcastWith(y)(_ + _) shouldEqual ArrayNd.fromArray(
+      Array(0, 2, 4, 2, 4, 6, 2, 4, 6, 4, 6, 8, 4, 6, 8, 6, 8, 10)
+    ).reshape(3, 2, 3)
+  }
+
+  behavior of "broadcasting to a new shape"
+
+  private val beforeShape = Seq(3, 1, 4)
+  private val beforeBroadcasting = ArrayNd.fill(beforeShape: _*)(0)
+
+  it should s"broadcast contiguous array to shape with same dimensionality, same dimensions" in {
+    val after = beforeBroadcasting.broadcastTo(beforeShape)
+    (after.shape, after.strides) shouldEqual(beforeShape, beforeBroadcasting.strides)
+  }
+
+  it should s"broadcast contiguous array to shape with same dimensionality, different dimensions" in {
+    val after = beforeBroadcasting.broadcastTo(Seq(1, 2, 1))
+    (after.shape, after.strides) shouldEqual(Seq(3, 2, 4), Seq(4, 0, 1))
+  }
+
+  it should s"broadcast contiguous array to shape with different dimensionality, different dimensions" in {
+    val after = beforeBroadcasting.broadcastTo(Seq(5, 1, 2, 1))
+    (after.shape, after.strides) shouldEqual(Seq(5, 3, 2, 4), Seq(0, 4, 0, 1))
   }
 
 }

@@ -12,16 +12,29 @@ import scala.reflect.ClassTag
   *
   * @param elements `NdArray` content in raw, 1D form
   * @param shape sequence of dimension sizes, the product of which must equal the number of elements
+  * @param _strides override strides definition for non-contiguous arrays
   * @param contiguous equivalent to c-contiguous in numpy, or row-major if the array is 2D
   * @tparam A numeric type
   */
 class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
   val elements: Array[A],
   val shape: Seq[Int],
+  override protected val _strides: Option[Seq[Int]],
   override protected val contiguous: Boolean
 ) extends ArrayNdOps[A] {
 
-  require(shape.product == elements.length, s"Invalid shape for $elements.length elements: $shape")
+  _strides.foreach(s => require(shape.length == s.length, s"Invalid strides $s for shape $shape"))
+
+  require(
+    if (_strides.isDefined) {
+      shape.zip(_strides.get).map {
+        case (dim, stride) => if (stride == 0) 1 else dim
+      }.product == elements.length
+    } else {
+      shape.product == elements.length
+    },
+    s"Invalid shape for ${elements.length} elements: $shape"
+  )
 
   /**
     * Finds an element at the specified indices
@@ -74,7 +87,7 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
       dimensions
     }
     if (contiguous) {
-      new ArrayNd(elements, newShape, contiguous)
+      new ArrayNd(elements, newShape, None, contiguous)
     } else {
       val copiedElements = new Array[A](len)
       var idx = 0
@@ -82,7 +95,7 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
         copiedElements(idx) = elem
         idx += 1
       }
-      new ArrayNd(copiedElements, newShape, contiguous = true)
+      new ArrayNd(copiedElements, newShape, None, contiguous = true)
     }
   }
 
@@ -91,7 +104,8 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
     this
   } else {
     val newShape = shape.reverse
-    new ArrayNd(elements, newShape, !contiguous)
+    val newStrides = _strides.map(_.reverse)
+    new ArrayNd(elements, newShape, newStrides, !contiguous)
   }
 
   override def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B] = {
@@ -103,7 +117,39 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
       dest(idx) = f(elem)
       idx += 1
     }
-    new ArrayNd(dest, shape, contiguous = true)
+    new ArrayNd(dest, shape, None, contiguous = true)
+  }
+
+  override def broadcastTo(thatShape: Seq[Int]): ArrayNd[A] = {
+    if (shape == thatShape) {
+      this
+    } else {
+      val (broadcastShape, broadcastStrides) = getBroadcastParams(thatShape)
+      new ArrayNd[A](
+        elements = elements,
+        shape = broadcastShape,
+        _strides = Some(broadcastStrides),
+        contiguous = false
+      )
+    }
+  }
+
+  override def broadcastWith(that: ArrayNd[A])(f: (A, A) => A)(implicit tag: ClassTag[A]): ArrayNd[A] = {
+    val thisBroadcasted = broadcastTo(that.shape)
+
+    val thisIt = broadcastTo(that.shape).iterator
+    val thatIt = that.broadcastTo(shape).iterator
+
+    val newShape = thisBroadcasted.shape
+    val len = newShape.product
+    val newElems: Array[A] = new Array[A](len)
+
+    var idx = 0
+    while (idx < len) {
+      newElems(idx) = f(thisIt.next(), thatIt.next())
+      idx += 1
+    }
+    new ArrayNd(newElems, newShape, None, contiguous = true)
   }
 
   override def equals(that: Any): Boolean = that match {
@@ -128,7 +174,7 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
       (math.log10(asDouble.abs) + 1).floor.toInt + (if (isNegative) 1 else 0)
     }
 
-    val maxDigits = elements.map(getNumDigits).max
+    val maxDigits = if (elements.nonEmpty) elements.map(getNumDigits).max else 0
 
     @tailrec
     def getIntervals(shapeSlice: Seq[Int]): Seq[Int] = shapeSlice match {
@@ -215,6 +261,7 @@ object ArrayNd {
     new ArrayNd(
       elements = Array.fill(shape.product)(elem),
       shape = shape,
+      _strides = None,
       contiguous = true
     )
   }
@@ -228,6 +275,7 @@ object ArrayNd {
   def fromArray[@specialized(Char, Int, Long, Float, Double) A: Numeric](data: Array[A]) = new ArrayNd[A](
     elements = data,
     shape = Seq(data.length),
+    _strides = None,
     contiguous = true
   )
   

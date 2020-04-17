@@ -2,6 +2,7 @@ package scalarray
 
 import scala.annotation.tailrec
 import scala.collection.AbstractIterator
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.reflect.ClassTag
 
 /**
@@ -16,16 +17,19 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
 
   val elements: Array[A]
   val shape: Seq[Int]
+  protected val _strides: Option[Seq[Int]]
   protected val contiguous: Boolean
 
   /**
     * Defined such that the inner product of this and a given ND index yield the 1D index in `elements`
     * @return strides corresponding to the shape of this array
     */
-  def strides: Seq[Int] = if (contiguous) {
-    shape.indices.map(n => shape.drop(n + 1).product)
-  } else {
-    shape.indices.map(n => shape.take(n).product)
+  def strides: Seq[Int] = _strides.getOrElse {
+    if (contiguous) {
+      shape.indices.map(n => shape.drop(n + 1).product)
+    } else {
+      shape.indices.map(n => shape.take(n).product)
+    }
   }
 
   /** Returns if the array is empty */
@@ -73,6 +77,52 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
   def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B]
 
   /**
+    * Return a new array with the same underlying elements and a new shape
+    * @param thatShape to broadcast to
+    */
+  def broadcastTo(thatShape: Seq[Int]): ArrayNd[A]
+
+  /**
+    * Operates on broadcasted array with a specified function
+    *
+    * @param that array to broadcast with
+    * @param f operation to perform on pairs of elements
+    * @return new n-dimensional array
+    */
+  def broadcastWith(that: ArrayNd[A])(f: (A, A) => A)(implicit tag: ClassTag[A]): ArrayNd[A]
+
+  /**
+    * Gets parameters needed to build an array broadcasted to the provided shape
+    * @param thatShape shape that we're broadcasting to
+    * @return shape and strides of the broadcasted array
+    */
+  protected def getBroadcastParams(thatShape: Seq[Int]): (Seq[Int], Seq[Int]) = {
+    @tailrec
+    def buildResults(
+      thisShp: Seq[Int],
+      thatShp: Seq[Int],
+      thisStrides: Seq[Int],
+      broadcastStrides: Seq[Int],
+      broadcastShape: Seq[Int]
+    ): (Seq[Int], Seq[Int]) = (thisShp, thatShp) match {
+      case (Seq(x, xs @ _*), Seq(y, ys @ _*)) =>
+        if (x == y || x == 1 || y == 1) {
+          val nextStride = if (x == 1 && y != 1) 0 else thisStrides.head
+          buildResults(xs, ys, thisStrides.tail, nextStride +: broadcastStrides, x.max(y) +: broadcastShape)
+        } else {
+          throw new Exception
+        }
+      case (Seq(x, xs @ _*), empty @ Seq()) =>
+        buildResults(xs, empty, thisStrides.tail, thisStrides.head +: broadcastStrides, x +: broadcastShape)
+      case (empty @ Seq(), Seq(y, ys @ _*)) =>
+        buildResults(empty, ys, empty, 0 +: broadcastStrides ,y +: broadcastShape)
+      case _ => (broadcastShape, broadcastStrides)
+    }
+
+    buildResults(shape.reverse, thatShape.reverse, strides.reverse, Seq[Int](), Seq[Int]())
+  }
+
+  /**
     * Parent class for iterators for `ArrayNd`s
     * All `ArrayNdIterator`s iterate through all elements in their underlying array
     * However, the iteration doesn't always proceed in the same order
@@ -83,7 +133,7 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     /** The 1-dimensional index, which may or may not match the counter */
     protected var idx: Int = 0
     /** Number of elements in the array */
-    protected val maxCount: Int = elements.length
+    protected lazy val maxCount: Int = elements.length
 
     /** Update all necessary state variables */
     protected def updateState(): Unit
@@ -97,6 +147,12 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     }
   }
 
+  /** Broadcast iterators indicate the shape of the broadcast array */
+  trait BroadcastIterator extends ArrayNdIterator {
+    val broadcastShape: Seq[Int]
+    override protected lazy val maxCount: Int = broadcastShape.product
+  }
+
   /** Iterator for a standard (non-transposed) `ArrayNd` */
   private class ContiguousIterator extends ArrayNdIterator {
     override protected def updateState(): Unit = {
@@ -107,17 +163,20 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
 
   /** Iterator for a transposed `ArrayNd` */
   private class NonContiguousIterator extends ArrayNdIterator {
+    override protected lazy val maxCount: Int = shape.product
     private val indices = Array.fill[Int](shape.length.max(1))(idx)
-    private val shapeArray = shape.toArray
-    private val thisStrides: Array[Int] = strides.toArray
+    private val shapeArray = new Array[Int](shape.length)
+    shape.copyToArray(shapeArray)
+    private val stridesArray: Array[Int] = new Array[Int](shape.length)
+    strides.copyToArray(stridesArray)
 
     override protected def updateState(): Unit = {
       @tailrec
       def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
         indices(dim) += 1
-        idx += thisStrides(dim)
+        idx += stridesArray(dim)
       } else {
-        idx -= thisStrides(dim) * indices(dim)
+        idx -= stridesArray(dim) * indices(dim)
         indices(dim) = 0
         update1dIdx(dim - 1)
       }
@@ -125,7 +184,5 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
       counter += 1
       if (hasNext) update1dIdx(indices.length - 1)
     }
-
   }
-
 }
