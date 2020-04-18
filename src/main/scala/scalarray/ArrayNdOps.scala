@@ -122,55 +122,32 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
     buildResults(shape.reverse, thatShape.reverse, strides.reverse, Seq[Int](), Seq[Int]())
   }
 
-  /**
-    * Parent class for iterators for `ArrayNd`s
-    * All `ArrayNdIterator`s iterate through all elements in their underlying array
-    * However, the iteration doesn't always proceed in the same order
-    */
-  abstract class ArrayNdIterator extends AbstractIterator[A] {
-    /** Tracks how many elements have been iterated over */
-    protected var counter: Int = 0
-    /** The 1-dimensional index, which may or may not match the counter */
-    protected var idx: Int = 0
-    /** Number of elements in the array */
-    protected lazy val maxCount: Int = elements.length
+  /** Iterator for a standard (non-transposed) `ArrayNd` */
+  private class ContiguousIterator extends AbstractIterator[A] {
+    protected var idx: Int = -1
+    protected lazy val maxCount: Int = elements.length - 1
 
-    /** Update all necessary state variables */
-    protected def updateState(): Unit
-
-    override def hasNext: Boolean = counter < maxCount
+    override def hasNext: Boolean = idx < maxCount
 
     override def next(): A = {
-      val element = elements(idx)
-      updateState()
-      element
-    }
-  }
-
-  /** Broadcast iterators indicate the shape of the broadcast array */
-  trait BroadcastIterator extends ArrayNdIterator {
-    val broadcastShape: Seq[Int]
-    override protected lazy val maxCount: Int = broadcastShape.product
-  }
-
-  /** Iterator for a standard (non-transposed) `ArrayNd` */
-  private class ContiguousIterator extends ArrayNdIterator {
-    override protected def updateState(): Unit = {
-      counter += 1
       idx += 1
+      elements(idx)
     }
   }
 
   /** Iterator for a transposed `ArrayNd` */
-  private class NonContiguousIterator extends ArrayNdIterator {
-    override protected lazy val maxCount: Int = shape.product
+  private class NonContiguousIterator extends AbstractIterator[A] {
+    private var counter = 0
+    private var idx = 0
+    private val maxCount: Int = shape.product
     private val indices = Array.fill[Int](shape.length.max(1))(idx)
+
     private val shapeArray = new Array[Int](shape.length)
     shape.copyToArray(shapeArray)
     private val stridesArray: Array[Int] = new Array[Int](shape.length)
     strides.copyToArray(stridesArray)
 
-    override protected def updateState(): Unit = {
+    private def updateState(): Unit = {
       @tailrec
       def update1dIdx(dim: Int): Unit = if (indices(dim) < shapeArray(dim) - 1) {
         indices(dim) += 1
@@ -183,6 +160,14 @@ trait ArrayNdOps[@specialized(Char, Int, Long, Float, Double) A] {
 
       counter += 1
       if (hasNext) update1dIdx(indices.length - 1)
+    }
+
+    override def hasNext: Boolean = counter < maxCount
+
+    override def next(): A = {
+      val element = elements(idx)
+      updateState()
+      element
     }
   }
 }
