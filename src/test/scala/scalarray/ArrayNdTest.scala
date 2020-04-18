@@ -2,6 +2,7 @@ package scalarray
 
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+import scala.reflect.ClassTag
 
 class ArrayNdTest extends AnyFlatSpec with Matchers {
 
@@ -199,5 +200,23 @@ class ArrayNdTest extends AnyFlatSpec with Matchers {
     val after = beforeBroadcasting.broadcastTo(Seq(5, 1, 2, 1))
     (after.shape, after.strides) shouldEqual(Seq(5, 3, 2, 4), Seq(0, 4, 0, 1))
   }
+
+  behavior of "numeric operations"
+
+  def numericOpsArr[A: Numeric: ClassTag](elem: A): ArrayNd[A] = ArrayNd.fill[A](3, 3)(elem)
+
+  def testBinaryNumericOp[A: Numeric: ClassTag](elem: A)(
+    arrayOp: (ArrayNd[A], ArrayNd[A]) => ArrayNd[A],
+    elemOp: (A, A) => A
+  ): Unit = {
+    it should s"add two ${elem.getClass.getSimpleName} matrices together" in {
+      val arr = numericOpsArr(elem)
+      arrayOp(arr, arr) shouldEqual numericOpsArr(elemOp(elem, elem))
+    }
+  }
+  testBinaryNumericOp(2)(_ + _, _ + _)
+  testBinaryNumericOp(2.toLong)(_ + _, _ + _)
+  testBinaryNumericOp(2.toFloat)(_ + _, _ + _)
+  testBinaryNumericOp(2.toDouble)(_ + _, _ + _)
 
 }

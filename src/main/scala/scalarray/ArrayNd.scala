@@ -16,7 +16,7 @@ import scala.reflect.ClassTag
   * @param contiguous equivalent to c-contiguous in numpy, or row-major if the array is 2D
   * @tparam A numeric type
   */
-class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
+class ArrayNd[@specialized(Int, Long, Float, Double) A: Numeric] (
   val elements: Array[A],
   val shape: Seq[Int],
   override protected val _strides: Option[Seq[Int]],
@@ -108,7 +108,7 @@ class ArrayNd[@specialized(Char, Int, Long, Float, Double) A: Numeric] (
     new ArrayNd(elements, newShape, newStrides, !contiguous)
   }
 
-  override def map[@specialized(Char, Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B] = {
+  override def map[@specialized(Int, Long, Float, Double) B: Numeric: ClassTag](f: A => B): ArrayNd[B] = {
     val len = elements.length
     val dest = new Array[B](len)
 
@@ -257,7 +257,7 @@ object ArrayNd {
     * @param elem value with which to fill the array
     * @tparam A any numeric type
     */
-  def fill[@specialized(Char, Int, Long, Float, Double) A: Numeric: ClassTag](shape: Int*)(elem: => A): ArrayNd[A] = {
+  def fill[@specialized(Int, Long, Float, Double) A: Numeric: ClassTag](shape: Int*)(elem: => A): ArrayNd[A] = {
     new ArrayNd(
       elements = Array.fill(shape.product)(elem),
       shape = shape,
@@ -272,9 +272,24 @@ object ArrayNd {
     * @param data from source array
     * @tparam A any numeric type
     */
-  def fromArray[@specialized(Char, Int, Long, Float, Double) A: Numeric](data: Array[A]) = new ArrayNd[A](
+  def fromArray[@specialized(Int, Long, Float, Double) A: Numeric](data: Array[A]) = new ArrayNd[A](
     elements = data,
     shape = Seq(data.length),
+    _strides = None,
+    contiguous = true
+  )
+
+  /**
+    * Converts any number to a singleton array
+    *
+    * @param element will become the singleton
+    * @tparam A numeric type
+    */
+  implicit def fromPrimitive[@specialized(Int, Long, Float, Double) A: Numeric: ClassTag](
+    element: A
+  ): ArrayNd[A] = new ArrayNd[A](
+    elements = Array(element),
+    shape = Seq(1),
     _strides = None,
     contiguous = true
   )
